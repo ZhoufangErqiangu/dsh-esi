@@ -16,6 +16,7 @@
 
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { JsonValue } from '@deepseek-ai/dsh-tools'
@@ -32,6 +33,10 @@ import {
   TAGS,
 } from './generated/catalog.ts'
 import { ESI_GUIDE, ESI_GUIDE_SECTION_NAME } from './prompt.ts'
+import { SdeService } from './sde/service.ts'
+import { SdeUpdater } from './sde/update.ts'
+import { createSdeQueryTool, createSdeStatusTool } from './tools/sde.ts'
+import { createSdeRollbackTool, createSdeUpdateTool } from './tools/sde-update.ts'
 import { createAccountsTool, createAuthorizeTool, createDeauthorizeTool } from './tools/authorize.ts'
 import { createCallTool } from './tools/call.ts'
 import { createLoadTool } from './tools/load.ts'
@@ -62,6 +67,12 @@ export interface EsiaPluginConfig {
   authStorePath?: string
   /** Called with the EVE login URL when esi_authorize starts (auto-open browser / tests). */
   onFlowStart?: (url: string) => void
+  /** Root of the SDE data tree (default: <package>/data). */
+  dataRoot?: string
+  /** Default SDE localization for name/description fields (default en). */
+  sdeLanguage?: 'de' | 'en' | 'es' | 'fr' | 'ja' | 'ko' | 'ru' | 'zh'
+  /** SDE update source (default: none — sde_update reports how to configure). */
+  sdeUpdateSource?: import('./sde/update.ts').SdeUpdateSource
 }
 
 export function apply(ctx: Context, config: EsiaPluginConfig = {}): void {
@@ -88,9 +99,27 @@ export function apply(ctx: Context, config: EsiaPluginConfig = {}): void {
     fetchImpl: config.fetchImpl,
   })
 
+  const sde = new SdeService({
+    dataRoot: config.dataRoot ?? defaultDataRoot(),
+    defaultLanguage: config.sdeLanguage,
+  })
+  const updater = config.sdeUpdateSource === undefined
+    ? undefined
+    : new SdeUpdater({
+        dataRoot: config.dataRoot ?? defaultDataRoot(),
+        source: config.sdeUpdateSource,
+        defaultLanguage: config.sdeLanguage,
+      })
+
   ctx.systemPrompt.section({ name: ESI_GUIDE_SECTION_NAME, order: 116, text: ESI_GUIDE })
 
   ctx.tools.register(createStatusTool(client, auth))
+  ctx.tools.register(createSdeStatusTool(sde))
+  ctx.tools.register(createSdeQueryTool(sde))
+  if (updater !== undefined) {
+    ctx.tools.register(createSdeUpdateTool(updater))
+    ctx.tools.register(createSdeRollbackTool(updater))
+  }
   ctx.tools.register(createSearchTool())
   ctx.tools.register(createCallTool(client))
   ctx.tools.register(createLoadTool(client, { cap: config.maxMaterialized }))
@@ -135,6 +164,10 @@ function mutatingOperation(toolName: string, args: unknown): { operationId: stri
 function defaultStorePath(): string {
   const home = process.env.DSH_HOME ?? homedir()
   return join(home, '.dsh-esi', 'auth.json')
+}
+
+function defaultDataRoot(): string {
+  return fileURLToPath(new URL('../data/', import.meta.url))
 }
 
 function createStatusTool(client: EsiaClient, auth: EsiaAuthService) {

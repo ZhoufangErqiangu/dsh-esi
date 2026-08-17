@@ -146,6 +146,20 @@ assert(!accounts.isError, JSON.stringify(accounts.error))
 assert(accounts.value.accounts.length === 1, 'one account must be listed')
 console.log('esi_accounts ok —', accounts.value.accounts[0].characterName)
 
+// 6b. SDE status + real-data queries (indexed fast path and stream scan)
+const sdeStatus = await root.tools.execute(exec('sde_status', {}))
+assert(!sdeStatus.isError, JSON.stringify(sdeStatus.error))
+assert(sdeStatus.value.buildNumber === 3470007, 'real data build')
+assert(sdeStatus.value.manifestPresent === true, 'manifest must exist')
+assert(sdeStatus.value.indexedTables.includes('types'), 'types must be indexed')
+console.log('sde_status ok — build', sdeStatus.value.buildNumber, '|', sdeStatus.value.tableCount, 'tables,', sdeStatus.value.indexedTables.length, 'indexed')
+
+const sdeQuery = await root.tools.execute(exec('sde_query', { table: 'types', search_text: 'rifter', limit: 3, language: 'zh' }))
+assert(!sdeQuery.isError, JSON.stringify(sdeQuery.error))
+assert(sdeQuery.value.count >= 1, 'rifter must be found')
+assert(sdeQuery.value.rows[0].name !== undefined, 'localized name resolved')
+console.log('sde_query ok —', sdeQuery.value.count, 'matches, first:', sdeQuery.value.rows[0].name, '(zh), usedIndex:', sdeQuery.value.meta.usedIndex)
+
 // 7. materialize into an agent scope
 const agent = { id: 'smoke-agent' }
 let scope
