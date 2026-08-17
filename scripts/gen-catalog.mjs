@@ -37,7 +37,7 @@ const SERVERS = {
   cn: {
     id: 'cn',
     label: '国服 Serenity',
-    esiBase: 'https://ali-esi.evepc.163.com',
+    esiBase: 'https://ali-esi.evepc.163.com/latest',
     loginBase: 'https://login.evepc.163.com',
     datasource: 'serenity',
     datasourceOptions: ['serenity', 'infinity'],
@@ -46,7 +46,7 @@ const SERVERS = {
   global: {
     id: 'global',
     label: '世界服 Tranquility',
-    esiBase: 'https://esi.evetech.net',
+    esiBase: 'https://esi.evetech.net/latest',
     loginBase: 'https://login.eveonline.com',
     datasource: 'tranquility',
     datasourceOptions: ['tranquility'],

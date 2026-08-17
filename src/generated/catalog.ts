@@ -6,8 +6,8 @@ import type { CatalogBody, CatalogEndpoint, CatalogParam, CatalogScope, CatalogS
 export const SWAGGER_VERSION = "1.19"
 
 export const SERVERS: Record<string, CatalogServer> = {
-  cn: { id: "cn", label: "国服 Serenity", esiBase: "https://ali-esi.evepc.163.com", loginBase: "https://login.evepc.163.com", datasource: "serenity", datasourceOptions: ["serenity","infinity"], languageOptions: ["en","en-us","zh"] },
-  global: { id: "global", label: "世界服 Tranquility", esiBase: "https://esi.evetech.net", loginBase: "https://login.eveonline.com", datasource: "tranquility", datasourceOptions: ["tranquility"], languageOptions: ["en","en-us"] },
+  cn: { id: "cn", label: "国服 Serenity", esiBase: "https://ali-esi.evepc.163.com/latest", loginBase: "https://login.evepc.163.com", datasource: "serenity", datasourceOptions: ["serenity","infinity"], languageOptions: ["en","en-us","zh"] },
+  global: { id: "global", label: "世界服 Tranquility", esiBase: "https://esi.evetech.net/latest", loginBase: "https://login.eveonline.com", datasource: "tranquility", datasourceOptions: ["tranquility"], languageOptions: ["en","en-us"] },
 }
 
 export const ENDPOINTS: readonly CatalogEndpoint[] = [
