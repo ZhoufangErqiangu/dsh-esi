@@ -14,8 +14,8 @@ import { createServer } from 'node:http'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { apply, name } from './src/index.ts'
-import { SERVERS } from './src/generated/catalog.ts'
+import { apply, name } from '../src/index.ts'
+import { SERVERS } from '../src/generated/catalog.ts'
 
 const CN_BASE = SERVERS.cn.esiBase
 const LOGIN_BASE = SERVERS.cn.loginBase

@@ -8,7 +8,7 @@ import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { createScope } from '@deepseek-ai/dsh-scope'
-import { apply } from './src/index.ts'
+import { apply } from '../src/index.ts'
 
 const root = new Context()
 await root.plugin(SystemPrompt, {})
