@@ -167,7 +167,13 @@ prompt 指引段（systemPrompt.section，约 300 token）：
    e. **保留上一版本**用于回滚（`sde_rollback` 或 `sde_update --rollback`）。
 3. 数据目录结构：`data/sde-<build>/...` + `data/current -> sde-<build>` + `data/manifest.json`（含每表行数/sha256/构建号/来源 URL）。
 
-实现状态：`sde_update` 机制（dry-run 计划 / sha256 增量 / 原子切换 / 回滚）已按 §5.2 落地并测试通过；当前交付的源适配器为 **JsonlSource**（消费与本插件数据同构的 jsonl+manifest 镜像，即可驱动更新，官方 zip 转换器输出亦可直接对接）。**官方 SDE zip 转换器（CSV/YAML → jsonl）为待办**：按 `SdeUpdateSource` 接口实现 `OfficialZipSdeSource`（下载 → 解压 → 并行转换 → 校验 → 交付版本目录），转换规范以现有 jsonl 约定为准。
+实现状态：`sde_update` 机制（dry-run 计划 / sha256 增量 / 原子切换 / 回滚）已按 §5.2 落地并测试通过；交付两个源适配器：
+- **JsonlSdeSource**（配置源）：消费与本插件数据同构的 jsonl+manifest 镜像；
+- **ZipSdeSource**（`sde_update` 的 `url` 参数，用户任意输入）：任意 http(s) URL → zip（jsonl 镜像包）→ 下载 → 校验 → 原子安装。完整错误分类：URL 校验（仅 http/https，拒绝 file:// 等）、网络错误（连接失败/超时/HTTP 状态/下载中断，瞬时故障自动重试退避）、zip 完整性（魔数 + fflate 解压）、zip-slip 路径防护、zip 炸弹（条目数与解压大小上限）、载荷校验（manifest.json/buildNumber/表文件齐全）、磁盘空间/权限；失败永远清理 staging，旧版本保持可查询直到原子切换完成（`GuiRunner` 先在 staging 构建索引再 rename 切换）。错误统一为 `SdeZipError`（稳定 `code` + 中文 `message`）。
+
+**官方 SDE zip 转换器（CSV/YAML → jsonl）为待办**：按 `SdeUpdateSource` 接口实现 `OfficialZipSdeSource`（下载 → 解压 → 并行转换 → 校验 → 交付版本目录），转换规范以现有 jsonl 约定为准。
+
+设置页卡片（下载地址输入框 + 更新按钮）的 host 端管线（`SdeGuiRunner` 状态机 + `dsh-esi` settings 命名空间桥）已实现并测试，但浏览器端卡片需将 dsh-esi 作为 `dsh.client` 包接入 web bundle（harness node_modules 符号链接或改 web 组合），当前未启用；更新入口为 `sde_update` 聊天工具。
 - 官方 zip 实测 URL（2026-08）：`https://eve-static-data-export.s3-eu-west-1.amazonaws.com/tranquility/sde.zip`（HEAD 200，约 112MB）；国服同桶 `serenity/sde.zip` 返回 403（未发布），国服数据更新需以世界服 zip 为准或另寻源。
 - 转换器依赖：CSV 解析（`*` 列名头 + `<table>_<lang>.csv` 语言文件合并）可纯 Node 实现；fsd YAML 需引入最小 YAML 解析依赖（如 `yaml`），按 `SdeUpdateSource` 接口交付。
 

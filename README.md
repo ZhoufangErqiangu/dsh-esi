@@ -15,7 +15,7 @@ DSH（DeepSeek Harness）插件：接入 **EVE Online ESI API**（204 个端点�
 | `esi_authorize` | EVE SSO 授权（loopback 回调，返回登录 URL 等待完成） |
 | `esi_accounts` / `esi_deauthorize` | 查看/撤销已授权角色 |
 | `sde_status` / `sde_query` | SDE 版本信息 / 表查询（过滤、搜索、投影、8 语言本地化） |
-| `sde_update` / `sde_rollback` | **用户触发**的 SDE 更新（默认 dry-run，确认后增量下载+原子切换+可回滚） |
+| `sde_update` / `sde_rollback` | **用户触发**的 SDE 更新（默认 dry-run，确认后执行；支持 `url` 参数从任意 http(s) 下载地址更新）+ 回滚 |
 
 ## 配置
 
@@ -39,8 +39,12 @@ DSH（DeepSeek Harness）插件：接入 **EVE Online ESI API**（204 个端点�
 
 - 版本目录自包含：`data/<version>/`（jsonl + `_sde.jsonl` + `manifest.json` + `sde.db`），`data/current` 软链指向当前版本；jsonl 是规范源，`sde.db` 是派生的 SQLite 读库（`node:sqlite`，可重建）。
 - 首次使用/数据变更后运行 `node scripts/build-manifest.mjs` 生成 manifest + `sde.db`（553MB 全量约 11s，101 张表全部可索引查询）。
-- 更新：配置 `sdeUpdateSource: new JsonlSdeSource({ baseUrl })` 后，模型调用 `sde_update`（先 `confirm=false` 出计划，用户同意后 `confirm=true` 执行）；`sde_rollback` 回滚。
+- 更新（两种方式）：
+  1. 配置源：`sdeUpdateSource: new JsonlSdeSource({ baseUrl })` 后，模型调用 `sde_update`（先 `confirm=false` 出计划，用户同意后 `confirm=true` 执行）。
+  2. 任意下载地址：`sde_update` 传 `url` 参数（http/https，指向**jsonl 镜像 zip**：内含 `manifest.json` + 各表 `.jsonl`）。无需预配置源；dry-run 先 HEAD 探测可达性与大小，确认后下载 → 校验（zip 完整性 / zip-slip 防护 / 载荷校验）→ 构建索引 → 原子切换，旧版本保留可回滚。
+- 错误处理：URL 校验（仅 http/https）、连接失败/超时/HTTP 状态/下载中断按类型报错并自动重试瞬时故障、文件大小上限、磁盘空间不足提示；所有错误返回稳定 `code` + 中文 `message`（见 `src/sde/zip-source.ts` 的 `SdeZipError`）。
 - 官方 SDE zip（CSV/YAML）转换器为待办：按 `SdeUpdateSource` 接口实现 `OfficialZipSdeSource`。
+- 设置页卡片（下载地址输入框 + 更新按钮）已实现 host 端全部管线，但浏览器端卡片需要把 dsh-esi 作为 `dsh.client` 包接入 web bundle（需在 harness 的 node_modules 挂符号链接或改 web 组合），目前**未启用**——更新请走 `sde_update` 聊天工具。
 
 ## 开发
 

@@ -22,7 +22,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { JsonValue } from '@deepseek-ai/dsh-tools'
 import { EsiaAuthService } from './auth/service.ts'
 import { TokenStore } from './auth/token-store.ts'
-import type { EsiaClientConfig, ServerId } from './esia-client.ts'
+import type { EsiaAbortSignal, EsiaClientConfig, ServerId } from './esia-client.ts'
 import { EsiaClient } from './esia-client.ts'
 import {
   ENDPOINT_INDEX,
@@ -35,6 +35,7 @@ import {
 import { ESI_GUIDE, ESI_GUIDE_SECTION_NAME } from './prompt.ts'
 import { SdeService } from './sde/service.ts'
 import { SdeUpdater } from './sde/update.ts'
+import { SdeGuiRunner, type SdeGuiStatus } from './sde/gui-runner.ts'
 import { createSdeQueryTool, createSdeStatusTool } from './tools/sde.ts'
 import { createSdeRollbackTool, createSdeUpdateTool } from './tools/sde-update.ts'
 import { createAccountsTool, createAuthorizeTool, createDeauthorizeTool } from './tools/authorize.ts'
@@ -103,23 +104,33 @@ export function apply(ctx: Context, config: EsiaPluginConfig = {}): void {
     dataRoot: config.dataRoot ?? defaultDataRoot(),
     defaultLanguage: config.sdeLanguage,
   })
-  const updater = config.sdeUpdateSource === undefined
-    ? undefined
-    : new SdeUpdater({
-        dataRoot: config.dataRoot ?? defaultDataRoot(),
-        source: config.sdeUpdateSource,
-        defaultLanguage: config.sdeLanguage,
-      })
+  // The updater needs no source for rollback; plan/run against a source are
+  // gated on sdeUpdateSource being configured (they raise a clear error).
+  const updater = new SdeUpdater({
+    dataRoot: config.dataRoot ?? defaultDataRoot(),
+    source: config.sdeUpdateSource,
+    defaultLanguage: config.sdeLanguage,
+  })
+  // URL-driven updates: sde_update accepts a download URL (zip mirror) even
+  // without a configured source. The runner reports progress through status
+  // callbacks; here they are collected and the final status returned.
+  const sdeRunner = new SdeGuiRunner({
+    dataRoot: config.dataRoot ?? defaultDataRoot(),
+    defaultLanguage: config.sdeLanguage,
+  })
+  const urlRunner = (url: string, signal: EsiaAbortSignal | undefined): Promise<unknown> => {
+    let last: SdeGuiStatus | undefined
+    return sdeRunner.runUpdate(url, (status) => { last = status }, signal as AbortSignal | undefined)
+      .then(() => last as unknown)
+  }
 
   ctx.systemPrompt.section({ name: ESI_GUIDE_SECTION_NAME, order: 116, text: ESI_GUIDE })
 
   ctx.tools.register(createStatusTool(client, auth))
   ctx.tools.register(createSdeStatusTool(sde))
   ctx.tools.register(createSdeQueryTool(sde))
-  if (updater !== undefined) {
-    ctx.tools.register(createSdeUpdateTool(updater))
-    ctx.tools.register(createSdeRollbackTool(updater))
-  }
+  ctx.tools.register(createSdeUpdateTool(updater, urlRunner))
+  ctx.tools.register(createSdeRollbackTool(updater))
   ctx.tools.register(createSearchTool())
   ctx.tools.register(createCallTool(client))
   ctx.tools.register(createLoadTool(client, { cap: config.maxMaterialized }))

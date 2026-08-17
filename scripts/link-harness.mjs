@@ -10,6 +10,9 @@
  * transitive deps from its own node_modules inside the harness, so linking
  * just these four entry packages is sufficient.
  *
+ * `fflate` (zip extraction for the URL-driven SDE update) is linked from the
+ * harness pnpm store — it has no dependencies, so a symlink is safe.
+ *
  * Idempotent and non-destructive: existing entries (copies or links) are left
  * untouched. Run after a fresh clone or after `rm -rf node_modules`:
  *
@@ -34,6 +37,11 @@ const LINKS = {
 // Prebuilt copies that must already exist in node_modules/@deepseek-ai
 // (cordis / dsh-tools / schemastery / cosmokit). We only check for them.
 const BASES = ['cordis', 'dsh-tools', 'schemastery', 'cosmokit']
+
+// Unscoped tools linked from the harness pnpm store.
+const PNPM_LINKS = [
+  { name: 'fflate', storePath: 'node_modules/.pnpm/fflate@0.8.3/node_modules/fflate' },
+]
 
 if (!existsSync(harnessRoot)) {
   console.error(`harness checkout not found at ${harnessRoot}`)
@@ -62,6 +70,27 @@ for (const [name, rel] of Object.entries(LINKS)) {
   symlinkSync(relTarget, linkPath, 'dir')
   created++
   console.log(`linked ${name} -> ${relTarget}`)
+}
+
+// Store links (unscoped tools). The target is a path INSIDE the harness's
+// pnpm store; Node resolves the linked package's own transitive deps from its
+// real location, so a symlink is sufficient.
+mkdirSync(join(repoRoot, 'node_modules'), { recursive: true })
+for (const row of PNPM_LINKS) {
+  const target = join(harnessRoot, row.storePath)
+  const linkPath = join(repoRoot, 'node_modules', row.name)
+  if (!existsSync(target)) {
+    console.warn(`skip store link ${row.name}: harness target missing at ${target}`)
+    continue
+  }
+  if (existsSync(linkPath)) {
+    console.log(`ok ${row.name}: present`)
+    continue
+  }
+  const relTarget = relative(join(repoRoot, 'node_modules'), target)
+  symlinkSync(relTarget, linkPath, 'dir')
+  created++
+  console.log(`linked ${row.name} -> ${relTarget}`)
 }
 
 const missingBases = BASES.filter((name) => !existsSync(join(linkDir, name)))

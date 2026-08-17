@@ -17,6 +17,7 @@ export type { ServerId } from './catalog-types.ts'
 export interface EsiaAbortSignal {
   readonly aborted: boolean
   addEventListener(type: 'abort', listener: () => void): void
+  removeEventListener(type: 'abort', listener: () => void): void
 }
 
 export interface EsiaHeaders {

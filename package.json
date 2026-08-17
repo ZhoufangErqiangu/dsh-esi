@@ -23,11 +23,14 @@
     "gen:check": "node scripts/gen-catalog.mjs --check",
     "typecheck": "tsc -p tsconfig.json",
     "test": "node --test 'tests/*.test.mjs'",
-    "verify": "pnpm run gen:check && pnpm run typecheck && pnpm run test"
+    "verify": "npm run gen:check && npm run typecheck && npm run test"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^"
+  },
+  "dependencies": {
+    "fflate": "^0.8.2"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:^",

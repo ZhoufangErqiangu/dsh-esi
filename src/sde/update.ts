@@ -74,12 +74,22 @@ export interface UpdateResult {
 
 const STAGING_SUFFIX = '-staging'
 
+/** Atomically repoint the `current` symlink under `dataRoot` (write-then-rename). */
+export function swapCurrentSymlink(dataRoot: string, targetName: string): void {
+  const link = join(dataRoot, 'current')
+  const tmp = `${link}.new`
+  if (existsSync(tmp)) unlinkSync(tmp)
+  symlinkSync(targetName, tmp)
+  if (existsSync(link)) unlinkSync(link)
+  renameSync(tmp, link)
+}
+
 export class SdeUpdater {
   private readonly dataRoot: string
-  private readonly source: SdeUpdateSource
+  private readonly source: SdeUpdateSource | undefined
   private readonly sde: SdeService
 
-  constructor(options: { dataRoot: string; source: SdeUpdateSource; defaultLanguage?: SdeLanguage }) {
+  constructor(options: { dataRoot: string; source?: SdeUpdateSource; defaultLanguage?: SdeLanguage }) {
     this.dataRoot = options.dataRoot
     this.source = options.source
     this.sde = new SdeService({ dataRoot: options.dataRoot, defaultLanguage: options.defaultLanguage })
@@ -95,6 +105,9 @@ export class SdeUpdater {
 
   /** Dry-run: probe the source and diff against the current version. */
   async plan(signal?: EsiaAbortSignal): Promise<UpdatePlan> {
+    if (this.source === undefined) {
+      throw new Error('SDE update: no update source configured (set sdeUpdateSource in the plugin config)')
+    }
     const probe = await this.source.probe(signal)
     let currentBuild: number | undefined
     let changedTables: string[] | null = null
@@ -131,6 +144,9 @@ export class SdeUpdater {
 
   /** Execute the update: fetch → manifest/index → atomic `current` swap. */
   async run(signal?: EsiaAbortSignal): Promise<UpdateResult> {
+    if (this.source === undefined) {
+      throw new Error('SDE update: no update source configured (set sdeUpdateSource in the plugin config)')
+    }
     const previousBuild = this.currentBuildNumber()
     const previousManifest = previousBuild === undefined ? undefined : this.currentManifest()
     const { versionDir, buildNumber } = await this.source.fetch(this.dataRoot, signal)
@@ -215,12 +231,7 @@ export class SdeUpdater {
 
   /** Atomically repoint the `current` symlink (write-then-rename). */
   private swapCurrent(targetName: string): void {
-    const link = join(this.dataRoot, 'current')
-    const tmp = `${link}.new`
-    if (existsSync(tmp)) unlinkSync(tmp)
-    symlinkSync(targetName, tmp)
-    if (existsSync(link)) unlinkSync(link)
-    renameSync(tmp, link)
+    swapCurrentSymlink(this.dataRoot, targetName)
   }
 }
 
