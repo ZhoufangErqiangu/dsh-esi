@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  verify:
+    name: Verify & build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.20.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Catalog drift check (swagger → generated catalog)
+        run: pnpm run gen:check
+
+      # Local dev types come from the sibling harness checkout (tsconfig.json);
+      # CI resolves @deepseek-ai/* types from npm-installed packages instead.
+      - name: Typecheck (npm-resolved types)
+        run: pnpm exec tsc -p tsconfig.ci.json
+
+      - name: Unit tests (88 cases, mock servers, no network)
+        run: pnpm test
+
+      - name: Build bundle (tsdown → lib/)
+        run: pnpm run build
+
+      - name: Built artifact imports in plain Node
+        run: node -e "import('./lib/index.js').then(m => { if (m.name !== 'dsh-esi' || typeof m.apply !== 'function') process.exit(1); console.log('lib ok —', m.name, m.inject.join(',')) })"

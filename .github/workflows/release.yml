@@ -1,0 +1,66 @@
+name: Release
+
+# Cut a release by pushing a version tag (annotated, e.g. v0.1.0):
+#   git tag -a v0.1.0 -m "…" && git push origin v0.1.0
+# The workflow verifies the tree, builds lib/, packs a tarball, and attaches it
+# to a GitHub Release for the tag.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & publish release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.20.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify
+        run: |
+          pnpm run gen:check
+          pnpm exec tsc -p tsconfig.ci.json
+          pnpm test
+
+      - name: Build bundle
+        run: pnpm run build
+
+      - name: Pack tarball
+        run: pnpm pack
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="$GITHUB_REF_NAME"
+          TARBALL=$(ls *.tgz | head -1)
+          echo "tag=$TAG tarball=$TARBALL"
+          gh release create "$TAG" "$TARBALL" \
+            --title "dsh-esi $TAG" \
+            --notes "See the [README](https://github.com/${{ github.repository }}/blob/$TAG/README.md) for install and data setup. SDE data is not bundled — fetch it via \`sde_update\` with a jsonl-mirror URL, or drop a version dir under \`data/\` and run \`scripts/build-manifest.mjs\`."
+
+      # ---- npm publication (when ready) -------------------------------------
+      # Requires an npm account owning the @dsh-esi scope and NODE_AUTH_TOKEN.
+      # Uncomment and add `id-token: write`/`secrets.NPM_TOKEN` when publishing:
+      #
+      # - name: Publish to npm
+      #   run: pnpm publish --access public --no-git-checks
+      #   env:
+      #     NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
