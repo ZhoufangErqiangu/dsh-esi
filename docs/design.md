@@ -167,7 +167,9 @@ prompt 指引段（systemPrompt.section，约 300 token）：
    e. **保留上一版本**用于回滚（`sde_rollback` 或 `sde_update --rollback`）。
 3. 数据目录结构：`data/sde-<build>/...` + `data/current -> sde-<build>` + `data/manifest.json`（含每表行数/sha256/构建号/来源 URL）。
 
-实现注意：转换器作为独立模块 `scripts/convert-sde`（Node 子进程池并行），既可被 `sde_update` 工具调用，也可单独 CLI 使用；YAML 解析引入最小依赖（如 `yaml`）。
+实现状态：`sde_update` 机制（dry-run 计划 / sha256 增量 / 原子切换 / 回滚）已按 §5.2 落地并测试通过；当前交付的源适配器为 **JsonlSource**（消费与本插件数据同构的 jsonl+manifest 镜像，即可驱动更新，官方 zip 转换器输出亦可直接对接）。**官方 SDE zip 转换器（CSV/YAML → jsonl）为待办**：按 `SdeUpdateSource` 接口实现 `OfficialZipSdeSource`（下载 → 解压 → 并行转换 → 校验 → 交付版本目录），转换规范以现有 jsonl 约定为准。
+
+数据目录结构（当前）：`data/<version-dir>/`（含 `_sde.jsonl`、`manifest.json`、`indexes/`）+ `data/current -> <version-dir>` 软链；`scripts/build-manifest.mjs` 负责生成 manifest 与热表索引。
 
 ---
 
