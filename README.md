@@ -61,6 +61,19 @@ node scripts/e2e-real.mjs         # 真实网络 e2e（国服公开端点，需�
 
 类型检查（零安装，复用 harness 预构建类型）：`tsc -p tsconfig.json`（需要 harness checkout 位于兄弟目录）。
 
+## 构建与发布
+
+```bash
+pnpm run build      # tsdown 构建 lib/（单文件 ESM：peers 外挂、fflate 内联、node: 内置外置）
+pnpm pack           # 本地打包检查 tarball 内容（files 白名单：lib/ + README + LICENSE + package.json）
+```
+
+- `prepare` 钩子 = `tsdown`：git/path 方式安装时自动构建，`lib/` 不进 git（见 .gitignore）。
+- 引擎要求 `node >= 22.5`（SDE 查询依赖 `node:sqlite`）。
+- **发布形态**（当前为 git tag 内部发布）：`git tag -a v0.1.0` 打标签；`dsh plugin add` 可用 git 地址/本地路径安装。后续上 npm 需：`@dsh-esi` org 拥有者发布 `npm publish --access public`；peer 版本（`@deepseek-ai/cordis`、`@deepseek-ai/dsh-tools`）已改为真实 semver 范围。
+- **数据不进包**：`data/` 被 .gitignore 且不在 files 白名单；消费者装完需自行获取 SDE 数据（见上文「SDE 数据」：`sde_update` 传 `url` 指向 jsonl 镜像 zip，或手动放置 + `build-manifest.mjs`）。
+- 构建产物验收：`DSH_ESI_PATCH=<指向 lib/index.js 的 patch> node scripts/gui-probe.mjs`（真实 loader 挂载 lib 跑通全工具链）。
+
 ## 在 DSH GUI 中调试（已打通）
 
 插件通过 **loader 按绝对路径挂载**，无需改动 harness 工作区（`EntryTree.import(name)` 直接动态 import 该路径；插件自身依赖从自己的 `node_modules` 解析，SDE 数据从 `src/../data` 解析）：

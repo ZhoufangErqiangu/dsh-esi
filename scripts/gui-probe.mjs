@@ -9,11 +9,15 @@
  * Run from the harness root (all paths are absolute):
  *   DSH_HOME=/home/alex/project/dsh-esi/.dsh-home \
  *     node --import tsx/esm /home/alex/project/dsh-esi/scripts/gui-probe.mjs
+ *
+ * DSH_ESI_PATCH overrides the overlay file (default: scripts/web-patch.yml,
+ * which mounts src/index.ts). Point it at a patch that mounts lib/index.js to
+ * acceptance-test the built release artifact through the real loader.
  */
 import { runProfile } from 'file:///home/alex/project/deepseek-harness/apps/cli/src/profile-boot.ts'
 import { loadLayeredEnv } from 'file:///home/alex/project/deepseek-harness/packages/boot/app-boot/src/index.ts'
 
-const PATCH = '/home/alex/project/dsh-esi/scripts/web-patch.yml'
+const PATCH = process.env.DSH_ESI_PATCH ?? '/home/alex/project/dsh-esi/scripts/web-patch.yml'
 
 function fail(message) {
   console.error(`GUI PROBE FAIL: ${message}`)
