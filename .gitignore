@@ -1,0 +1,7 @@
+node_modules/
+lib/
+*.tsbuildinfo
+*.log
+
+# SDE static data is downloaded/managed by sde_update, not versioned
+data/

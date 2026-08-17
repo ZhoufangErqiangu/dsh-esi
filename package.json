@@ -1,0 +1,37 @@
+{
+  "name": "@dsh-esi/plugin-esi",
+  "version": "0.1.0",
+  "description": "DSH plugin bridging EVE Online ESI API and SDE static data with a small always-visible tool surface plus on-demand endpoint materialization.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./catalog": {
+      "types": "./src/generated/catalog.ts",
+      "default": "./src/generated/catalog.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "gen": "node scripts/gen-catalog.mjs",
+    "gen:check": "node scripts/gen-catalog.mjs --check",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test 'tests/*.test.mjs'",
+    "verify": "pnpm run gen:check && pnpm run typecheck && pnpm run test"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-tools": "workspace:^"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-tools": "workspace:^",
+    "typescript": "^5"
+  }
+}
