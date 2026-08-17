@@ -228,15 +228,18 @@ export class SdeService {
   private columnFor(columns: ReadonlySet<string>, field: string, language: SdeLanguage): string {
     if (field === '_key' || field === 'id') return '"id"'
     if (field === 'name') return this.nameColumn(columns, language)
-    if (columns.has(field)) return quote(field)
-    return `json_extract("row", '$.${field.replaceAll("'", "''")}')`
+    // Tolerate snake_case spellings of the SDE's camelCase keys (category_id → categoryID).
+    const sqlField = fieldCandidates(field).find((candidate) => columns.has(candidate)) ?? snakeToCamel(field)
+    if (columns.has(sqlField)) return quote(sqlField)
+    return `json_extract("row", '$.${sqlField.replaceAll("'", "''")}')`
   }
 
   /** Resolve a search field to a LIKE-able column. */
   private searchColumn(columns: ReadonlySet<string>, field: string, language: SdeLanguage): string {
     if (field === 'name' || field === '_key' || field === 'id') return this.nameColumn(columns, language)
-    if (columns.has(field)) return quote(field)
-    return `json_extract("row", '$.${field.replaceAll("'", "''")}')`
+    const sqlField = fieldCandidates(field).find((candidate) => columns.has(candidate)) ?? snakeToCamel(field)
+    if (columns.has(sqlField)) return quote(sqlField)
+    return `json_extract("row", '$.${sqlField.replaceAll("'", "''")}')`
   }
 
   private nameColumn(columns: ReadonlySet<string>, language: SdeLanguage): string {
@@ -248,13 +251,32 @@ export class SdeService {
 
   // ---- row post-processing ---------------------------------------------------
 
+  /**
+   * Resolve a user-facing field name to a value in the raw jsonl row.
+   * Tolerates the SQL-style snake_case spelling (`group_id`, `packaged_volume`)
+   * for the SDE's camelCase keys (`groupID`, `packagedVolume`), and maps the
+   * primary-key aliases `id`/`_key` to the raw `_key`. Returns `undefined`
+   * when the field does not exist in the row.
+   */
+  private rawField(row: Record<string, unknown>, field: string): unknown {
+    if (field === 'id' || field === '_key') return row._key
+    for (const candidate of fieldCandidates(field)) {
+      const value = row[candidate]
+      if (value !== undefined) return value
+    }
+    return undefined
+  }
+
   private project(row: Record<string, unknown>, fields: readonly string[] | undefined, language: SdeLanguage): Record<string, unknown> {
-    const source = fields !== undefined && fields.length > 0
-      ? Object.fromEntries(fields.map((field) => [field, row[field]]))
-      : row
     const out: Record<string, unknown> = {}
-    for (const [key, value] of Object.entries(source)) {
-      out[key] = typeof value === 'object' && value !== null && isLocalized(value)
+    const keys = fields !== undefined && fields.length > 0 ? fields : Object.keys(row)
+    for (const field of keys) {
+      const value = this.rawField(row, field)
+      // Unknown fields are skipped, never emitted as `undefined`: a property
+      // with an undefined value breaks JSON round-trip losslessness (the tools
+      // runtime rejects such output as "not lossless JSON").
+      if (value === undefined) continue
+      out[field] = typeof value === 'object' && value !== null && isLocalized(value)
         ? resolveLocalized(value, language)
         : value
     }
@@ -278,6 +300,24 @@ export class SdeService {
 
 function quote(identifier: string): string {
   return `"${identifier.replaceAll('"', '""')}"`
+}
+
+/** snake_case → lowerCamelCase: `group_id` → `groupId`, `packaged_volume` → `packagedVolume`. */
+function snakeToCamel(name: string): string {
+  return name.replace(/_([a-z])/g, (_match, letter: string) => letter.toUpperCase())
+}
+
+/**
+ * Candidate spellings for a user-facing field name, most specific first.
+ * The SDE keeps identifier acronyms uppercase (`categoryID`, `raceID`), which a
+ * plain snake→camel conversion cannot recover (`category_id` → `categoryId`),
+ * so the `Id`-suffix variant is added explicitly.
+ */
+function fieldCandidates(name: string): string[] {
+  const camel = snakeToCamel(name)
+  const candidates = [name, camel]
+  if (camel.endsWith('Id')) candidates.push(`${camel.slice(0, -2)}ID`)
+  return candidates
 }
 
 function isOperatorFilter(value: unknown): value is { gte?: number; lte?: number; gt?: number; lt?: number; in?: unknown[]; ne?: unknown } {

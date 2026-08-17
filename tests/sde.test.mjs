@@ -145,6 +145,48 @@ test('projection, limit truncation, and localized default language', async () =>
   }
 })
 
+test('projection tolerates snake_case keys and drops unknown fields losslessly', async () => {
+  const { dir } = setupData()
+  try {
+    const sde = makeService(dir)
+
+    // Unknown fields (group_id, volume) must be dropped — never emitted as
+    // undefined, which would break JSON round-trip losslessness.
+    const projected = await sde.query({
+      table: 'types',
+      ids: [587],
+      fields: ['name', 'mass', 'group_id', 'volume'],
+    })
+    assert.deepEqual(Object.keys(projected.rows[0]).sort(), ['mass', 'name'])
+    assert.equal(projected.rows[0].name, 'Rifter')
+    assert.equal(projected.rows[0].mass, 1.1)
+
+    // snake_case resolves to the SDE's camelCase key and keeps the requested name.
+    const group = await sde.query({ table: 'groups', ids: [1], fields: ['category_id', 'name'] })
+    assert.deepEqual(Object.keys(group.rows[0]).sort(), ['category_id', 'name'])
+    assert.equal(group.rows[0].category_id, 6)
+
+    // The result must survive a JSON round trip (the tools runtime rejects
+    // "not lossless JSON" output).
+    assert.deepEqual(JSON.parse(JSON.stringify(projected.rows)), projected.rows)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('filters accept snake_case spellings of camelCase keys', async () => {
+  const { dir } = setupData()
+  try {
+    const sde = makeService(dir)
+    const result = await sde.query({ table: 'groups', filter: { category_id: 6 } })
+    assert.equal(result.count, 1)
+    assert.equal(result.rows[0]._key, 1)
+    assert.equal(result.rows[0].categoryID, 6)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('unknown tables and missing manifests produce actionable errors', async () => {
   const { dir } = setupData()
   try {
