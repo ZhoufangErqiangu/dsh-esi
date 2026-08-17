@@ -45,14 +45,41 @@ DSH（DeepSeek Harness）插件：接入 **EVE Online ESI API**（204 个端点�
 ## 开发
 
 ```bash
+node scripts/link-harness.mjs     # 首次/克隆后：链接 harness 预构建包（dsh-scope 等 4 个）
 node scripts/gen-catalog.mjs      # 从 public/json/esi.json 重新生成端点目录
 node scripts/build-manifest.mjs   # 构建 SDE manifest + 索引
 node --test 'tests/*.test.mjs'    # 测试（56 用例，mock 服务器，无需网络）
-node smoke.mjs                    # 离线全链路冒烟（mock）
-node e2e-real.mjs                 # 真实网络 e2e（国服公开端点，需外网）
+node scripts/smoke.mjs            # 离线全链路冒烟（mock，需 data/ 就位）
+node scripts/e2e-real.mjs         # 真实网络 e2e（国服公开端点，需外网）
 ```
 
 类型检查（零安装，复用 harness 预构建类型）：`tsc -p tsconfig.json`（需要 harness checkout 位于兄弟目录）。
+
+## 在 DSH GUI 中调试（已打通）
+
+插件通过 **loader 按绝对路径挂载**，无需改动 harness 工作区（`EntryTree.import(name)` 直接动态 import 该路径；插件自身依赖从自己的 `node_modules` 解析，SDE 数据从 `src/../data` 解析）：
+
+```bash
+# 1) 独立实例验证（端口 3081，与 3080 生产 GUI 共存；同 loader/patch 路径）：
+DSH_HOME=/tmp/dsh-esi-home node --import tsx/esm ../deepseek-harness/apps/cli/src/bin.ts web \
+  --patch /home/alex/project/dsh-esi/scripts/web-patch.yml
+
+# 2) 进程内探针：真实 profile 组合 + 同一 patch，跑通 esi_status/search/call/sde_query：
+DSH_HOME=/tmp/dsh-esi-home node --import tsx/esm /home/alex/project/dsh-esi/scripts/gui-probe.mjs
+```
+
+**挂到正在运行的 :3080 GUI（热加载，无需重启）**：把 `scripts/web-patch.yml` 里的
+`- insert:` 块（去掉 webserver 行）写进 `~/.dsh/profiles/web/cordis.patch.yml`，运行中的实例
+自动重载并挂载插件；删掉该块即卸载。patch 内的 `name` 是绝对路径，换机器需改。
+
+```yaml
+- insert:
+    - id: dsh-esi
+      name: /home/alex/project/dsh-esi/src/index.ts
+      config:
+        server: cn
+```
+
 
 ## 状态
 

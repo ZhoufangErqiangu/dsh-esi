@@ -1,0 +1,27 @@
+# dsh-esi — debug overlay for `dsh web` (and `dsh --profile web`).
+#
+# Usage (from the harness root, sibling of this checkout):
+#   DSH_HOME=/home/alex/project/dsh-esi/.dsh-home \
+#     node --import tsx/esm apps/cli/src/bin.ts web --patch /home/alex/project/dsh-esi/scripts/web-patch.yml
+#
+# Why an absolute entry path instead of a workspace package: the vendored
+# loader mounts a row by dynamic-importing its `name`, so an absolute path to
+# the plugin's src entry works with no change to the harness pnpm workspace.
+# The plugin resolves its own @deepseek-ai deps from its node_modules (see
+# scripts/link-harness.mjs) and its SDE data from ../data relative to src/.
+#
+# This overlay pins a spare port so it can coexist with the production GUI on
+# 3080. To apply it to the LIVE GUI instead, put the `- insert:` block (without
+# the webserver row) into $DSH_HOME/cordis.patch.yml — the running instance
+# hot-reloads that file.
+
+- id: webserver
+  config:
+    host: 127.0.0.1
+    port: 3081
+
+- insert:
+    - id: dsh-esi
+      name: /home/alex/project/dsh-esi/src/index.ts
+      config:
+        server: cn
