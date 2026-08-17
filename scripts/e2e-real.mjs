@@ -67,5 +67,25 @@ console.log('get_markets_prices ok —', prices.data.length, 'prices; sample typ
 const sde = ok(await root.tools.execute(exec('sde_query', { table: 'types', search_text: 'tritanium', limit: 3 })), 'sde_query')
 console.log('sde_query ok —', sde.count, 'matches; first', sde.rows[0]?.name, '| engine', sde.meta.engine)
 
+// 6. hot-path tools: item lookup + market prices (the manufacturing-analysis pair)
+const items = ok(await root.tools.execute(exec('esi_item_lookup', {
+  type_ids: [25601, 25605, 25590, 30993],
+  language: 'zh',
+})), 'esi_item_lookup')
+console.log('esi_item_lookup ok —', items.rows.map((row) => `${row.type_id}:${row.name}`).join(', '), '| not_found:', items.not_found ?? [])
+
+const market = ok(await root.tools.execute(exec('esi_market_prices', {
+  type_ids: [25601, 25605, 25590, 30993],
+  language: 'zh',
+})), 'esi_market_prices')
+for (const row of market.rows) {
+  const parts = [`${row.type_id}:${row.name ?? ''}`]
+  if (row.average_price !== undefined) parts.push(`avg=${row.average_price.toFixed(2)}`)
+  if (row.best_sell_price !== undefined) parts.push(`sell=${row.best_sell_price.toFixed(2)}`)
+  if (row.best_buy_price !== undefined) parts.push(`buy=${row.best_buy_price.toFixed(2)}`)
+  console.log('  ', parts.join(' | '))
+}
+console.log('esi_market_prices ok — region', market.meta.region_id, market.meta.region_name ?? '', '| names:', market.meta.names)
+
 console.log('REAL E2E PASS')
 process.exit(0)

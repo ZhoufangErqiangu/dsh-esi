@@ -40,7 +40,9 @@ import { createSdeQueryTool, createSdeStatusTool } from './tools/sde.ts'
 import { createSdeRollbackTool, createSdeUpdateTool } from './tools/sde-update.ts'
 import { createAccountsTool, createAuthorizeTool, createDeauthorizeTool } from './tools/authorize.ts'
 import { createCallTool } from './tools/call.ts'
+import { createItemLookupTool } from './tools/item-lookup.ts'
 import { createLoadTool } from './tools/load.ts'
+import { createMarketPricesTool } from './tools/market-prices.ts'
 import { createSearchTool } from './tools/search.ts'
 
 export const name = 'dsh-esi'
@@ -134,6 +136,11 @@ export function apply(ctx: Context, config: EsiaPluginConfig = {}): void {
   ctx.tools.register(createSearchTool())
   ctx.tools.register(createCallTool(client))
   ctx.tools.register(createLoadTool(client, { cap: config.maxMaterialized }))
+  // Hot-path tools: price snapshots and item-name resolution are the most
+  // frequently repeated patterns (see the manufacturing session analysis) —
+  // both get dedicated first-class tools instead of raw multi-call workflows.
+  ctx.tools.register(createItemLookupTool(sde))
+  ctx.tools.register(createMarketPricesTool(client, sde))
   ctx.tools.register(createAuthorizeTool(auth))
   ctx.tools.register(createAccountsTool(auth))
   ctx.tools.register(createDeauthorizeTool(auth))

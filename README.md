@@ -2,7 +2,7 @@
 
 DSH（DeepSeek Harness）插件：接入 **EVE Online ESI API**（204 个端点）与 **SDE 静态数据**（100+ 张表）。
 
-核心设计：**端点目录不进入系统提示词**。常驻工具面仅 ~10 个，模型按需用 `esi_endpoint_search` 查目录、用 `esi_call` 调任意端点、用 `esi_endpoint_load` 把热点端点物化为原生工具（agent 作用域，自动清理）。详见 [`docs/design.md`](docs/design.md)。
+核心设计：**端点目录不进入系统提示词**。常驻工具面仅 ~13 个，模型按需用 `esi_endpoint_search` 查目录、用 `esi_call` 调任意端点、用 `esi_endpoint_load` 把热点端点物化为原生工具（agent 作用域，自动清理）。详见 [`docs/design.md`](docs/design.md)。
 
 ## 工具面
 
@@ -12,6 +12,8 @@ DSH（DeepSeek Harness）插件：接入 **EVE Online ESI API**（204 个端点�
 | `esi_endpoint_search` | **目录唯一入口**：关键词/tag 搜索 204 端点 |
 | `esi_call` | 通用调度器：任意端点可调（认证/限流/重试/分页/缓存/错误归一化内置） |
 | `esi_endpoint_load` | 热点端点按需物化为 `esi_<operationId>` 原生工具（上限 30/agent，可 unload） |
+| `esi_item_lookup` | **热路径**：type_ids ↔ 物品名（中英文名搜索、本地化、未命中回报） |
+| `esi_market_prices` | **热路径**：批量 type_ids 一次返回全服均价 + 吉他最优买卖价（挂单簿聚合、TTL 缓存、可选附物品名） |
 | `esi_authorize` | EVE SSO 授权（loopback 回调，返回登录 URL 等待完成） |
 | `esi_accounts` / `esi_deauthorize` | 查看/撤销已授权角色 |
 | `sde_status` / `sde_query` | SDE 版本信息 / 表查询（过滤、搜索、投影、8 语言本地化） |
@@ -52,7 +54,7 @@ DSH（DeepSeek Harness）插件：接入 **EVE Online ESI API**（204 个端点�
 node scripts/link-harness.mjs     # 首次/克隆后：链接 harness 预构建包（dsh-scope 等 4 个）
 node scripts/gen-catalog.mjs      # 从 public/json/esi.json 重新生成端点目录
 node scripts/build-manifest.mjs   # 构建 SDE manifest + 索引
-node --test 'tests/*.test.mjs'    # 测试（56 用例，mock 服务器，无需网络）
+node --test 'tests/*.test.mjs'    # 测试（88 用例，mock 服务器，无需网络）
 node scripts/smoke.mjs            # 离线全链路冒烟（mock，需 data/ 就位）
 node scripts/e2e-real.mjs         # 真实网络 e2e（国服公开端点，需外网）
 ```

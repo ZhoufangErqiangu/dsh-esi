@@ -81,7 +81,7 @@
 │  ├─ AuthService      OAuth 授权 + token 存储（credentials 服务）       │
 │  └─ SdeService       数据目录、惰性查询、热索引、增量更新、回滚        │
 │                                                                       │
-│  工具表面（见 §3）：固定小面 ~9 个 + 按需物化的原生工具（agent 作用域） │
+│  工具表面（见 §3）：固定小面 ~13 个 + 按需物化的原生工具（agent 作用域） │
 │  系统提示词段：ESI/SDE 使用指引（~300 token，不含端点目录）            │
 │  （可选）客户端半部：OAuth 回调页 + 认证/数据管理面板                  │
 └───────────────────────────────────────────────────────────────────────┘
@@ -91,19 +91,30 @@
 
 ## 3. 工具表面设计（核心答案）
 
-### 3.1 固定常驻工具（~9 个，全部端点可达但零目录开销）
+### 3.1 固定常驻工具（~13 个，全部端点可达但零目录开销）
 
 | 工具 | 作用 |
 |---|---|
 | `esi_endpoint_search` | 按关键词/tag 搜索 204 个端点，返回紧凑匹配（operationId、method、path、summary、所需 scope、必填参数）。**这是目录的唯一入口** |
 | `esi_call` | 通用调度器：`operation_id` + `path_params`/`query`/`body`，内部校验目录、附加认证、限流、分页、缓存，返回 `{data, meta}`。**任何端点都可通过它调用** |
 | `esi_endpoint_load` | 将 1 个端点（或整个 tag）**物化**为原生工具注册到当前 agent 作用域（`agent.ctx.tools.register`），下一步起模型可原生调用；会话结束自动注销 |
+| `esi_item_lookup` | **热路径**：type_ids ↔ 名称（含中英文名搜索、本地化、group/volume/published 元数据），吸收 types 表字段拼写差异，未命中 id 回报 `not_found` |
+| `esi_market_prices` | **热路径**：批量 type_ids 一次调用返回全服均价/调整价（TTL 缓存）+ 区域（默认吉他 The Forge 10000002）最优买卖价与档位量；挂单簿在工具内聚合，只有摘要进上下文，可选附 SDE 物品名 |
 | `esi_authorize` | EVE SSO OAuth 授权：请求指定 scope，返回已授权角色列表 |
 | `esi_accounts` | 查看/注销已授权角色与 scope（授权管理） |
 | `esi_status` | 服务器健康、当前授权角色、限流状态、缓存统计 |
 | `sde_status` | 数据版本/构建号、表清单与行数、来源、索引状态 |
 | `sde_query` | 查询单张表：结构化过滤 + 字段搜索 + 字段投影 + limit + 语言 |
 | `sde_update` | **用户触发**的 SDE 更新（默认 dry-run 预览，二次确认后增量下载、校验、原子切换、可回滚） |
+
+**热路径工具的动机**（2026-08 调优，来自真实会话复盘）：制造/市场分析类对话中，
+“查物品名”与“查价格”是最频繁的重复模式。原始做法是多次 `sde_query`（字段拼写
+type_id/typeID/_key/typeName 不一致，静默丢列）+ 多次 `esi_call`（`get_markets_prices`
+返回全部 ~35k 行，需 grep spill 文件提取目标 id；`get_markets_region_id_orders` 每个
+type 一次且把整本挂单簿倒进上下文）。`esi_item_lookup` 与 `esi_market_prices` 把这两个
+模式收敛为**单次调用 + 紧凑摘要**：订单簿在工具内聚合（仅保留最优价/档位量/单数），
+全服价格表按 TTL 缓存（默认 5 分钟），名称解析走 SDE 索引（<1ms/批）。两者都是只读
+GET 数据，不受写操作审批门影响。
 
 prompt 指引段（systemPrompt.section，约 300 token）：
 

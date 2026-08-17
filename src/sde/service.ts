@@ -46,11 +46,16 @@ interface WherePiece {
 
 export class SdeService {
   private readonly dataRoot: string
-  private readonly defaultLanguage: SdeLanguage
+  private readonly configuredLanguage: SdeLanguage
 
   constructor(options: SdeServiceOptions) {
     this.dataRoot = options.dataRoot
-    this.defaultLanguage = options.defaultLanguage ?? 'en'
+    this.configuredLanguage = options.defaultLanguage ?? 'en'
+  }
+
+  /** The configured default localization (used when a query omits `language`). */
+  get defaultLanguage(): SdeLanguage {
+    return this.configuredLanguage
   }
 
   /** The current version directory: the `current` symlink, else the only `_sde.jsonl` dir. */
