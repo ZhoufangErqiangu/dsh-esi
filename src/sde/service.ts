@@ -1,20 +1,21 @@
 /**
  * SDE query service: discovers the current version directory, reads the
- * manifest, and answers table queries.
+ * manifest, and answers table queries against the derived SQLite store
+ * (`sde.db`, built by scripts/build-manifest.mjs / the update pipeline).
  *
- * Query strategy keeps memory flat:
- *  - indexed tables (curated hot tables) answer primary-key and name lookups
- *    via byte-offset indexes — no scan, constant reads;
- *  - everything else streams the jsonl line by line, applying filters and
- *    stopping at the limit.
+ * The model-facing query API stays structured (ids / filter / search /
+ * fields / limit / language); this module translates it to SQL:
+ *  - primary keys → the indexed `id` column;
+ *  - promoted numeric fields → typed columns (range operators);
+ *  - the localized `name` → `name_<lang>` columns (search uses the query
+ *    language);
+ *  - anything else → `json_extract(row, '$.field')` over the original row.
  *
- * Localized objects (`{de,en,es,fr,ja,ko,ru,zh}`) are resolved to the
- * requested language in returned rows.
+ * Localized objects are resolved to the requested language in returned rows.
  */
 
-import { createReadStream, existsSync, readFileSync, readSync, openSync, readdirSync, readlinkSync } from 'node:fs'
-import { closeSync } from 'node:fs'
-import { createInterface } from 'node:readline'
+import { DatabaseSync } from 'node:sqlite'
+import { existsSync, readFileSync, readdirSync, readlinkSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import {
   SDE_LANGUAGES,
@@ -26,23 +27,21 @@ import {
   type SdeStatus,
   type SdeVersionRecord,
 } from './types.ts'
+import { SDE_DB_FILE } from './db-build.ts'
 
 const MANIFEST_FILE = 'manifest.json'
 const VERSION_FILE = '_sde.jsonl'
-const INDEX_DIR = 'indexes'
 const DEFAULT_LIMIT = 20
 const MAX_LIMIT = 200
-
-/** Byte-offset index: key → [offset, length]; names → keys. */
-export interface TableIndex {
-  readonly table: string
-  readonly entries: Record<string, [number, number]>
-  readonly names: Record<string, number[]>
-}
 
 export interface SdeServiceOptions {
   dataRoot: string
   defaultLanguage?: SdeLanguage
+}
+
+interface WherePiece {
+  sql: string
+  params: (string | number | null)[]
 }
 
 export class SdeService {
@@ -107,7 +106,7 @@ export class SdeService {
         tableCount: 0,
         totalRows: 0,
         totalBytes: 0,
-        indexedTables: [],
+        dbPresent: false,
         manifestPresent: false,
       }
     }
@@ -120,7 +119,7 @@ export class SdeService {
       tableCount: tables.length,
       totalRows: tables.reduce((sum, [, stats]) => sum + stats.rows, 0),
       totalBytes: tables.reduce((sum, [, stats]) => sum + stats.sizeBytes, 0),
-      indexedTables: tables.filter(([, stats]) => stats.indexed).map(([name]) => name),
+      dbPresent: existsSync(join(versionDir, SDE_DB_FILE)),
       manifestPresent: true,
     }
   }
@@ -133,170 +132,122 @@ export class SdeService {
     if (manifest === undefined || stats === undefined) {
       throw new Error(this.unknownTableMessage(manifest, table))
     }
+    const dbPath = join(versionDir, SDE_DB_FILE)
+    if (!existsSync(dbPath)) {
+      throw new Error(
+        `SDE store missing (${SDE_DB_FILE}) in ${versionDir} — run scripts/build-manifest.mjs or sde_update first`,
+      )
+    }
     const language = this.resolveLanguage(options.language)
     const limit = Math.min(Math.max(options.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT)
-    const filePath = join(versionDir, `${table}.jsonl`)
 
-    // Indexed fast path: primary-key lookups and name search on indexed tables.
-    const index = stats.indexed ? this.readIndex(versionDir, table) : undefined
-    if (index !== undefined && this.canUseIndex(options, index)) {
-      return this.queryByIndex(filePath, index, options, limit, language)
-    }
-
-    return this.scanTable(filePath, options, limit, language)
-  }
-
-  private canUseIndex(options: SdeQueryOptions, index: TableIndex): boolean {
-    if (options.ids !== undefined && options.ids.length > 0) return true
-    if (options.search !== undefined && options.search.text !== '') {
-      const fields = options.search.fields ?? ['name']
-      // The name index only covers the localized `name` field.
-      if (fields.length === 1 && fields[0] === 'name') return true
-    }
-    return false
-  }
-
-  private async queryByIndex(
-    filePath: string,
-    index: TableIndex,
-    options: SdeQueryOptions,
-    limit: number,
-    language: SdeLanguage,
-  ): Promise<SdeQueryResult> {
-    const wantedKeys = new Set<string>()
-    let rowsScanned = 0
-    for (const id of options.ids ?? []) {
-      const key = String(id)
-      if (index.entries[key] !== undefined) {
-        wantedKeys.add(key)
-        rowsScanned += 1
-      }
-    }
-    if (options.search !== undefined && options.search.text !== '') {
-      const needle = options.search.text.toLowerCase()
-      for (const [name, keys] of Object.entries(index.names)) {
-        if (name.includes(needle)) {
-          for (const key of keys) wantedKeys.add(String(key))
-          rowsScanned += keys.length
-        }
-      }
-    }
-
-    const rows = this.readRowsByOffset(filePath, index, wantedKeys)
-    const projected = rows
-      .filter((row) => this.matchesFilter(row, options.filter))
-      .map((row) => this.project(row, options.fields, language))
-    const truncated = projected.length > limit
-    return {
-      table: options.table,
-      count: Math.min(projected.length, limit),
-      rows: projected.slice(0, limit),
-      meta: { rowsScanned, truncated, usedIndex: true, language },
-    }
-  }
-
-  private readRowsByOffset(filePath: string, index: TableIndex, keys: Set<string>): Record<string, unknown>[] {
-    const rows: Record<string, unknown>[] = []
-    const fd = openSync(filePath, 'r')
+    const db = new DatabaseSync(dbPath, { readOnly: true })
     try {
-      const buffer = Buffer.alloc(1 << 20)
-      for (const key of keys) {
-        const location = index.entries[key]
-        if (location === undefined) continue
-        const [offset, length] = location
-        const read = readSync(fd, buffer, 0, length, offset)
-        const line = buffer.subarray(0, read).toString('utf8').trim()
-        if (line === '') continue
-        try {
-          const row = JSON.parse(line) as Record<string, unknown>
-          rows.push(row)
-        } catch {
-          // skip malformed line
-        }
+      const columns = new Set(
+        (db.prepare(`PRAGMA table_info(${quote(table)})`).all() as { name: string }[]).map((column) => column.name),
+      )
+      const where = this.buildWhere(table, columns, options, language)
+      const sql = `SELECT "row" FROM ${quote(table)} ${where.sql} LIMIT ${limit + 1}`
+      const statement = db.prepare(sql)
+      const rows = statement.all(...where.params) as { row: string }[]
+      const truncated = rows.length > limit
+      const kept = rows.slice(0, limit)
+      const projected = kept.map((entry) => {
+        const row = JSON.parse(entry.row) as Record<string, unknown>
+        return this.project(row, options.fields, language)
+      })
+      return {
+        table,
+        count: projected.length,
+        rows: projected,
+        meta: { engine: 'sqlite', truncated, language },
       }
     } finally {
-      closeSync(fd)
+      db.close()
     }
-    return rows
   }
 
-  private async scanTable(
-    filePath: string,
-    options: SdeQueryOptions,
-    limit: number,
+  // ---- SQL translation -----------------------------------------------------
+
+  private buildWhere(table: string, columns: ReadonlySet<string>, options: SdeQueryOptions, language: SdeLanguage): WherePiece {
+    const clauses: string[] = []
+    const params: (string | number | null)[] = []
+
+    const ids = options.ids ?? []
+    if (ids.length > 0) {
+      clauses.push(`"id" IN (${ids.map(() => '?').join(', ')})`)
+      params.push(...ids.map((id) => String(id)))
+    }
+
+    for (const [field, wanted] of Object.entries(options.filter ?? {})) {
+      const { sql, params: pieceParams } = this.fieldCondition(columns, field, wanted, language)
+      clauses.push(sql)
+      params.push(...pieceParams)
+    }
+
+    if (options.search !== undefined && options.search.text !== '') {
+      const fields = options.search.fields ?? ['name']
+      const needle = escapeLike(options.search.text)
+      const orClauses: string[] = []
+      for (const field of fields) {
+        const column = this.searchColumn(columns, field, language)
+        orClauses.push(`${column} LIKE ? ESCAPE '\\'`)
+        params.push(`%${needle}%`)
+      }
+      clauses.push(`(${orClauses.join(' OR ')})`)
+    }
+
+    return { sql: clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '', params }
+  }
+
+  private fieldCondition(
+    columns: ReadonlySet<string>,
+    field: string,
+    wanted: SdeFilterValue,
     language: SdeLanguage,
-  ): Promise<SdeQueryResult> {
-    const rows: Record<string, unknown>[] = []
-    let scanned = 0
-    let truncated = false
-
-    const input = createReadStream(filePath, { encoding: 'utf8' })
-    const rl = createInterface({ input, crlfDelay: Infinity })
-    const searchFields = options.search?.fields ?? ['name']
-    const needle = options.search?.text?.toLowerCase() ?? ''
-
-    for await (const line of rl) {
-      if (line.trim() === '') continue
-      scanned += 1
-      let row: Record<string, unknown>
-      try {
-        row = JSON.parse(line) as Record<string, unknown>
-      } catch {
-        continue
+  ): WherePiece {
+    const q = this.columnFor(columns, field, language)
+    if (isOperatorFilter(wanted)) {
+      const pieces: string[] = []
+      const params: (string | number | null)[] = []
+      if (wanted.gte !== undefined) { pieces.push(`${q} >= ?`); params.push(wanted.gte) }
+      if (wanted.lte !== undefined) { pieces.push(`${q} <= ?`); params.push(wanted.lte) }
+      if (wanted.gt !== undefined) { pieces.push(`${q} > ?`); params.push(wanted.gt) }
+      if (wanted.lt !== undefined) { pieces.push(`${q} < ?`); params.push(wanted.lt) }
+      if (wanted.ne !== undefined) { pieces.push(`${q} != ?`); params.push(sqlValue(wanted.ne)) }
+      if (wanted.in !== undefined) {
+        pieces.push(`${q} IN (${wanted.in.map(() => '?').join(', ')})`)
+        params.push(...wanted.in.map((value) => sqlValue(value)))
       }
-      if (!this.matchesFilter(row, options.filter)) continue
-      if (needle !== '' && !this.matchesSearch(row, searchFields, needle, language)) continue
-      rows.push(this.project(row, options.fields, language))
-      if (rows.length >= limit) {
-        truncated = true
-        break
-      }
+      return { sql: pieces.join(' AND '), params }
     }
-    return {
-      table: options.table,
-      count: rows.length,
-      rows,
-      meta: { rowsScanned: scanned, truncated, usedIndex: false, language },
-    }
+    return { sql: `${q} = ?`, params: [sqlValue(wanted)] }
   }
 
-  private matchesFilter(row: Record<string, unknown>, filter: Record<string, SdeFilterValue> | undefined): boolean {
-    if (filter === undefined) return true
-    for (const [field, wanted] of Object.entries(filter)) {
-      const actual = row[field]
-      if (isOperatorFilter(wanted)) {
-        if (wanted.gte !== undefined && !(typeof actual === 'number' && actual >= wanted.gte)) return false
-        if (wanted.lte !== undefined && !(typeof actual === 'number' && actual <= wanted.lte)) return false
-        if (wanted.gt !== undefined && !(typeof actual === 'number' && actual > wanted.gt)) return false
-        if (wanted.lt !== undefined && !(typeof actual === 'number' && actual < wanted.lt)) return false
-        if (wanted.ne !== undefined && looseEqual(actual, wanted.ne)) return false
-        if (wanted.in !== undefined && !wanted.in.some((candidate) => looseEqual(actual, candidate))) return false
-      } else if (!looseEqual(actual, wanted)) {
-        return false
-      }
-    }
-    return true
+  /** Resolve a filter field to a queryable SQL expression. */
+  private columnFor(columns: ReadonlySet<string>, field: string, language: SdeLanguage): string {
+    if (field === '_key' || field === 'id') return '"id"'
+    if (field === 'name') return this.nameColumn(columns, language)
+    if (columns.has(field)) return quote(field)
+    return `json_extract("row", '$.${field.replaceAll("'", "''")}')`
   }
 
-  private matchesSearch(
-    row: Record<string, unknown>,
-    fields: readonly string[],
-    needle: string,
-    language: SdeLanguage,
-  ): boolean {
-    for (const field of fields) {
-      const value = row[field]
-      if (typeof value === 'string' && value.toLowerCase().includes(needle)) return true
-      if (isLocalized(value)) {
-        const resolved = resolveLocalized(value, language)
-        if (resolved.toLowerCase().includes(needle)) return true
-      }
-      if (typeof value === 'number' && String(value).includes(needle)) return true
-    }
-    return false
+  /** Resolve a search field to a LIKE-able column. */
+  private searchColumn(columns: ReadonlySet<string>, field: string, language: SdeLanguage): string {
+    if (field === 'name' || field === '_key' || field === 'id') return this.nameColumn(columns, language)
+    if (columns.has(field)) return quote(field)
+    return `json_extract("row", '$.${field.replaceAll("'", "''")}')`
   }
 
-  /** Project fields and resolve localized objects to the requested language. */
+  private nameColumn(columns: ReadonlySet<string>, language: SdeLanguage): string {
+    if (columns.has(`name_${language}`)) return quote(`name_${language}`)
+    if (columns.has('name')) return quote('name')
+    // No name column at all: search matches nothing meaningful.
+    return `''`
+  }
+
+  // ---- row post-processing ---------------------------------------------------
+
   private project(row: Record<string, unknown>, fields: readonly string[] | undefined, language: SdeLanguage): Record<string, unknown> {
     const source = fields !== undefined && fields.length > 0
       ? Object.fromEntries(fields.map((field) => [field, row[field]]))
@@ -315,16 +266,6 @@ export class SdeService {
     return (SDE_LANGUAGES as readonly string[]).includes(candidate) ? candidate : 'en'
   }
 
-  private readIndex(versionDir: string, table: string): TableIndex | undefined {
-    const path = join(versionDir, INDEX_DIR, `${table}.json`)
-    if (!existsSync(path)) return undefined
-    try {
-      return JSON.parse(readFileSync(path, 'utf8')) as TableIndex
-    } catch {
-      return undefined
-    }
-  }
-
   private unknownTableMessage(manifest: SdeManifest | undefined, table: string): string {
     if (manifest === undefined) {
       return `SDE manifest missing in the current version directory — run scripts/build-manifest.mjs (or sde_update) first`
@@ -335,16 +276,24 @@ export class SdeService {
   }
 }
 
+function quote(identifier: string): string {
+  return `"${identifier.replaceAll('"', '""')}"`
+}
+
 function isOperatorFilter(value: unknown): value is { gte?: number; lte?: number; gt?: number; lt?: number; in?: unknown[]; ne?: unknown } {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     && ['gte', 'lte', 'gt', 'lt', 'in', 'ne'].some((key) => Object.hasOwn(value, key))
 }
 
-function looseEqual(a: unknown, b: unknown): boolean {
-  if (a === b) return true
-  if (typeof a === 'number' && typeof b === 'string') return a === Number(b)
-  if (typeof a === 'string' && typeof b === 'number') return Number(a) === b
-  return false
+/** Bind a filter value: strings compare as themselves (json_extract decodes). */
+function sqlValue(value: unknown): string | number | null {
+  if (typeof value === 'boolean') return value ? 1 : 0
+  if (typeof value === 'string' || typeof value === 'number') return value
+  return JSON.stringify(value)
+}
+
+function escapeLike(text: string): string {
+  return text.replace(/[\\%_]/g, '\\$&')
 }
 
 export function isLocalized(value: unknown): value is Record<string, string> {

@@ -150,7 +150,7 @@ prompt 指引段（systemPrompt.section，约 300 token）：
 - 磁盘：jsonl 表 + `data/manifest.json`（构建号、来源 URL、每表行数/sha256/索引状态）。
 - 查询：惰性读入内存缓存（LRU，按表容量上限淘汰，如合计 ≤1GB）；结构化过滤
   `filter: {field: value | {gte,lte,in,ne}}` + 指定字段文本搜索 + 字段投影 + `limit`（默认 20，上限 200）+ `language`（默认 en/zh 可配）。
-- **热索引**：安装/更新时为常用表（types、mapSolarSystems、groups、categories、mapRegions、mapConstellations 等）预建 name→_key 索引（体积小），让"按名字查物品/星系"这类高频查询瞬时完成。
+- **SQLite 读库**（2026-08 落地，替代初版字节偏移热索引）：构建阶段把 jsonl 导入派生的 `sde.db`（`node:sqlite`，101 表全量约 11s）；每表建 `id` 主键、`name_<lang>` 本地化列、数值字段类型化列 + 索引，`row` 列保留原始行（投影/本地化解析）；查询翻译成 SQL，未提升字段走 `json_extract`；实测 type 587 查询 <0.1ms、名字 LIKE ~1ms。
 
 ### 5.2 用户自主更新方案（`sde_update`）—— 已定：官方 SDE zip + 内置转换
 
@@ -171,7 +171,7 @@ prompt 指引段（systemPrompt.section，约 300 token）：
 - 官方 zip 实测 URL（2026-08）：`https://eve-static-data-export.s3-eu-west-1.amazonaws.com/tranquility/sde.zip`（HEAD 200，约 112MB）；国服同桶 `serenity/sde.zip` 返回 403（未发布），国服数据更新需以世界服 zip 为准或另寻源。
 - 转换器依赖：CSV 解析（`*` 列名头 + `<table>_<lang>.csv` 语言文件合并）可纯 Node 实现；fsd YAML 需引入最小 YAML 解析依赖（如 `yaml`），按 `SdeUpdateSource` 接口交付。
 
-数据目录结构（当前）：`data/<version-dir>/`（含 `_sde.jsonl`、`manifest.json`、`indexes/`）+ `data/current -> <version-dir>` 软链；`scripts/build-manifest.mjs` 负责生成 manifest 与热表索引。
+数据目录结构（当前）：`data/<version-dir>/`（含 `_sde.jsonl`、`manifest.json`、`sde.db`）+ `data/current -> <version-dir>` 软链；`scripts/build-manifest.mjs` 负责生成 manifest 与派生的 SQLite 读库（jsonl 为规范源，查询走 `node:sqlite` 的索引/JSON1，全量构建约 11s）。
 
 ---
 

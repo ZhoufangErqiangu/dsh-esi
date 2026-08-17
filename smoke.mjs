@@ -151,14 +151,14 @@ const sdeStatus = await root.tools.execute(exec('sde_status', {}))
 assert(!sdeStatus.isError, JSON.stringify(sdeStatus.error))
 assert(sdeStatus.value.buildNumber === 3470007, 'real data build')
 assert(sdeStatus.value.manifestPresent === true, 'manifest must exist')
-assert(sdeStatus.value.indexedTables.includes('types'), 'types must be indexed')
-console.log('sde_status ok — build', sdeStatus.value.buildNumber, '|', sdeStatus.value.tableCount, 'tables,', sdeStatus.value.indexedTables.length, 'indexed')
+assert(sdeStatus.value.dbPresent === true, 'sde.db must be present')
+console.log('sde_status ok — build', sdeStatus.value.buildNumber, '|', sdeStatus.value.tableCount, 'tables, db', sdeStatus.value.dbPresent)
 
 const sdeQuery = await root.tools.execute(exec('sde_query', { table: 'types', search_text: 'rifter', limit: 3, language: 'zh' }))
 assert(!sdeQuery.isError, JSON.stringify(sdeQuery.error))
 assert(sdeQuery.value.count >= 1, 'rifter must be found')
 assert(sdeQuery.value.rows[0].name !== undefined, 'localized name resolved')
-console.log('sde_query ok —', sdeQuery.value.count, 'matches, first:', sdeQuery.value.rows[0].name, '(zh), usedIndex:', sdeQuery.value.meta.usedIndex)
+console.log('sde_query ok —', sdeQuery.value.count, 'matches, first:', sdeQuery.value.rows[0].name, '(zh), engine:', sdeQuery.value.meta.engine)
 
 // 7. materialize into an agent scope
 const agent = { id: 'smoke-agent' }

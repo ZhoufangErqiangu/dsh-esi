@@ -35,7 +35,7 @@ function setupData() {
   dump('types', TYPES)
   dump('groups', GROUPS)
   dump('ships', SHIPS)
-  const summary = buildManifest(dir, { indexTables: ['types'] })
+  const summary = buildManifest(dir)
   assert.equal(summary.tableCount, 3)
   return { dir, versionDir }
 }
@@ -53,7 +53,7 @@ test('status reports build, tables, and indexed set', () => {
     assert.equal(status.tableCount, 3)
     assert.equal(status.totalRows, 8)
     assert.ok(status.totalBytes > 0)
-    assert.deepEqual(status.indexedTables, ['types'])
+    assert.equal(status.dbPresent, true)
     assert.equal(status.manifestPresent, true)
   } finally {
     rmSync(dir, { recursive: true, force: true })
@@ -67,7 +67,7 @@ test('indexed ids lookup resolves localized names', async () => {
     const en = await sde.query({ table: 'types', ids: [587] })
     assert.equal(en.count, 1)
     assert.equal(en.rows[0].name, 'Rifter')
-    assert.equal(en.meta.usedIndex, true)
+    assert.equal(en.meta.engine, 'sqlite')
     const zh = await sde.query({ table: 'types', ids: [34], language: 'zh' })
     assert.equal(zh.rows[0].name, '三钛合金')
     const missing = await sde.query({ table: 'types', ids: [999999] })
@@ -85,7 +85,7 @@ test('indexed name search finds all matches case-insensitively', async () => {
     assert.equal(result.count, 2)
     const names = result.rows.map((row) => row.name).sort()
     assert.deepEqual(names, ['Rifter', 'Rifter Blueprint'])
-    assert.equal(result.meta.usedIndex, true)
+    assert.equal(result.meta.engine, 'sqlite')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -97,8 +97,7 @@ test('exact and operator filters scan non-indexed paths correctly', async () => 
     const sde = makeService(dir)
     const exact = await sde.query({ table: 'types', filter: { published: true } })
     assert.equal(exact.count, 3)
-    assert.equal(exact.meta.usedIndex, false)
-    assert.ok(exact.meta.rowsScanned >= 4)
+    assert.equal(exact.meta.engine, 'sqlite')
 
     const ranged = await sde.query({ table: 'types', filter: { mass: { gte: 1 } } })
     const masses = ranged.rows.map((row) => row.mass).sort()
@@ -114,15 +113,14 @@ test('exact and operator filters scan non-indexed paths correctly', async () => 
   }
 })
 
-test('search on a non-indexed table streams with scan metadata', async () => {
+test('search on a table without localized names matches plain name', async () => {
   const { dir } = setupData()
   try {
     const sde = makeService(dir)
     const result = await sde.query({ table: 'ships', search: { text: 'frigate' } })
     assert.equal(result.count, 1)
     assert.equal(result.rows[0]._key, 11)
-    assert.equal(result.meta.usedIndex, false)
-    assert.ok(result.meta.rowsScanned >= 2)
+    assert.equal(result.meta.engine, 'sqlite')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

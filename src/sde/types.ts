@@ -14,8 +14,7 @@ export interface SdeTableStats {
   readonly rows: number
   readonly sha256: string
   readonly sizeBytes: number
-  /** True when a byte-offset index was built for this table. */
-  readonly indexed: boolean
+
 }
 
 /** `manifest.json` inside a version directory. */
@@ -34,7 +33,8 @@ export interface SdeStatus {
   readonly tableCount: number
   readonly totalRows: number
   readonly totalBytes: number
-  readonly indexedTables: readonly string[]
+  /** True when the derived SQLite store (sde.db) is present for this version. */
+  readonly dbPresent: boolean
   readonly manifestPresent: boolean
 }
 
@@ -75,9 +75,9 @@ export interface SdeQueryResult {
   readonly count: number
   readonly rows: readonly Record<string, unknown>[]
   readonly meta: {
-    readonly rowsScanned: number
+    /** Query backend in use (always 'sqlite' for the current implementation). */
+    readonly engine: 'sqlite'
     readonly truncated: boolean
-    readonly usedIndex: boolean
     readonly language: SdeLanguage
   }
 }

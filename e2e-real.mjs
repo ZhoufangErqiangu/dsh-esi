@@ -65,7 +65,7 @@ console.log('get_markets_prices ok —', prices.data.length, 'prices; sample typ
 
 // 5. SDE real data
 const sde = ok(await root.tools.execute(exec('sde_query', { table: 'types', search_text: 'tritanium', limit: 3 })), 'sde_query')
-console.log('sde_query ok —', sde.count, 'matches; first', sde.rows[0]?.name, '| usedIndex', sde.meta.usedIndex)
+console.log('sde_query ok —', sde.count, 'matches; first', sde.rows[0]?.name, '| engine', sde.meta.engine)
 
 console.log('REAL E2E PASS')
 process.exit(0)

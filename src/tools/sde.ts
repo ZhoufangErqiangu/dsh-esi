@@ -35,7 +35,7 @@ export function createSdeQueryTool(sde: SdeService) {
       + 'fields exactly or with operators {"gte":..,"lte":..,"gt":..,"lt":..,"in":[...],"ne":..}; search finds text in '
       + 'the named fields (default the localized name) case-insensitively. fields projects columns; language selects the '
       + 'localization for name/description (de,en,es,fr,ja,ko,ru,zh; default en). limit caps rows (default 20, max 200). '
-      + 'Returns rows plus meta (rowsScanned, truncated, usedIndex).',
+      + 'Returns rows plus meta (engine, truncated, language).',
     parameters: {
       table: { type: 'string', required: true, description: 'SDE table name, e.g. types, mapSolarSystems, groups.' },
       ids: { type: 'array', items: { type: 'json' }, description: 'Primary-key lookups, e.g. [34, 587].' },

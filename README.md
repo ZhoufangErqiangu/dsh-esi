@@ -37,8 +37,8 @@ DSH（DeepSeek Harness）插件：接入 **EVE Online ESI API**（204 个端点�
 
 ## SDE 数据
 
-- 版本目录自包含：`data/<version>/`（jsonl + `_sde.jsonl` + `manifest.json` + `indexes/`），`data/current` 软链指向当前版本。
-- 首次使用/数据变更后运行 `node scripts/build-manifest.mjs` 生成 manifest 与热表索引（~2s，101 表 + 6 热表）。
+- 版本目录自包含：`data/<version>/`（jsonl + `_sde.jsonl` + `manifest.json` + `sde.db`），`data/current` 软链指向当前版本；jsonl 是规范源，`sde.db` 是派生的 SQLite 读库（`node:sqlite`，可重建）。
+- 首次使用/数据变更后运行 `node scripts/build-manifest.mjs` 生成 manifest + `sde.db`（553MB 全量约 11s，101 张表全部可索引查询）。
 - 更新：配置 `sdeUpdateSource: new JsonlSdeSource({ baseUrl })` 后，模型调用 `sde_update`（先 `confirm=false` 出计划，用户同意后 `confirm=true` 执行）；`sde_rollback` 回滚。
 - 官方 SDE zip（CSV/YAML）转换器为待办：按 `SdeUpdateSource` 接口实现 `OfficialZipSdeSource`。
 

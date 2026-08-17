@@ -19,7 +19,7 @@ function writeVersion(dir, build, tables) {
   for (const [table, rows] of Object.entries(tables)) {
     writeFileSync(join(dir, `${table}.jsonl`), rows.map((row) => JSON.stringify(row)).join('\n') + '\n')
   }
-  return buildManifestForVersionDir(dir, { indexTables: ['types'] })
+  return buildManifestForVersionDir(dir)
 }
 
 const V1_TYPES = [

@@ -3,7 +3,7 @@
  * delta download, atomic `current` symlink swap, and rollback.
  *
  * A version directory is self-contained (jsonl tables + _sde.jsonl +
- * manifest.json + indexes/). The `current` symlink under the data root selects
+ * manifest.json + sde.db). The `current` symlink under the data root selects
  * the active version; previous versions are always kept, so rollback is a
  * symlink flip.
  *
@@ -30,7 +30,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { basename, join } from 'node:path'
-import { buildManifestForVersionDir, DEFAULT_INDEX_TABLES } from '../../scripts/build-manifest.mjs'
+import { buildManifestForVersionDir } from '../../scripts/build-manifest.mjs'
 import type { EsiaAbortSignal, EsiaFetch, EsiaFetchInit } from '../esia-client.ts'
 import { SdeService } from './service.ts'
 import type { SdeLanguage, SdeManifest, SdeVersionRecord } from './types.ts'
@@ -142,7 +142,7 @@ export class SdeUpdater {
       writeFileSync(recordPath, JSON.stringify(record), 'utf8')
     }
 
-    buildManifestForVersionDir(versionDir, { indexTables: DEFAULT_INDEX_TABLES })
+    buildManifestForVersionDir(versionDir)
     this.swapCurrent(basename(versionDir))
 
     const newManifest = this.sde.readManifest(versionDir)
