@@ -32,6 +32,7 @@ export interface EsiaFetchInit {
 
 export interface EsiaResponseLike {
   readonly status: number
+  readonly ok: boolean
   readonly headers: EsiaHeaders
   text(): Promise<string>
 }
