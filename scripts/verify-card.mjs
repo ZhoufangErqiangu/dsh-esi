@@ -215,10 +215,13 @@ try {
   const regionPersisted = await readSettingsYaml().then((y) => y.includes('defaultMarketRegionId: 10000002'))
   check('region selection persists', regionPersisted)
 
-  // Login without a client id → typed error status from the host.
-  await dialog2.getByRole('button', { name: '登录 EVE', exact: true }).click()
-  await dialog2.getByText(/未配置|client id/i).first().waitFor({ timeout: 20_000 })
-  check('login without clientId surfaces typed error', true)
+  // Login is disabled for now with a coming-soon hint.
+  const loginBtn = dialog2.getByRole('button', { name: '登录 EVE', exact: true })
+  await loginBtn.waitFor({ timeout: 5000 })
+  const loginDisabled = await loginBtn.isDisabled()
+  check('login button disabled (coming soon)', loginDisabled)
+  await dialog2.getByText(/即将推出|Coming soon/i).first().waitFor({ timeout: 5000 })
+  check('coming-soon hint visible', true)
   await page.screenshot({ path: join(SHOTS, '7-account-card.png') })
 
 } catch (error) {

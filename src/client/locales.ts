@@ -18,6 +18,7 @@ export type EveAccountLocaleKey =
   | 'defaultRegionLabel'
   | 'defaultRegionHint'
   | 'noRegion'
+  | 'comingSoon'
   | 'expand'
   | 'collapse'
 
@@ -62,6 +63,7 @@ export const zhAccount: Record<EveAccountLocaleKey, string> = {
   defaultRegionLabel: '默认市场星域',
   defaultRegionHint: '未设置时市场工具默认使用吉他（The Forge）；选择后立即生效。',
   noRegion: '未设置（默认吉他）',
+  comingSoon: '即将推出（Coming Soon）',
   expand: '展开',
   collapse: '收起',
 }
@@ -108,6 +110,7 @@ export const enAccount: Record<EveAccountLocaleKey, string> = {
   defaultRegionLabel: 'Default market region',
   defaultRegionHint: 'Market tools default to Jita (The Forge) when unset; takes effect immediately.',
   noRegion: 'Unset (default Jita)',
+  comingSoon: 'Coming soon',
   expand: 'Expand',
   collapse: 'Collapse',
 }

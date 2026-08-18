@@ -160,17 +160,18 @@ export function EveAccountCard(props: EveAccountCardProps) {
         )}
       </div>
 
-      {/* EVE login */}
+      {/* EVE login — disabled for now (coming soon). */}
       <div style={fieldSeparated}>
         <div style={actionRow}>
           <button
             type="button"
-            style={busy || locked ? { ...primaryButton, opacity: 0.4, cursor: 'default' } : primaryButton}
-            disabled={busy || locked}
-            onClick={() => { props.login() }}
+            style={{ ...primaryButton, opacity: 0.4, cursor: 'default' }}
+            disabled
+            aria-disabled="true"
           >
-            {busy ? t('loginBusy') : t('login')}
+            {t('login')}
           </button>
+          <span style={hint}>{t('comingSoon')}</span>
           {status?.loginUrl !== undefined && (
             <a href={status.loginUrl} target="_blank" rel="noreferrer" style={loginLink}>
               {t('openLoginUrl')}
