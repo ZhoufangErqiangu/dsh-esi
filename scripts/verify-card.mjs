@@ -155,6 +155,16 @@ try {
   await dialog.getByText(/build 20260103/).first().waitFor({ timeout: 5000 })
   check('status shows new build', true)
 
+  // C2) Primary button contrast + official link (regression: white-on-white).
+  const updateBtn = dialog.getByRole('button', { name: '下载并更新', exact: true })
+  const bg = await updateBtn.evaluate((el) => getComputedStyle(el).backgroundColor)
+  const fg = await updateBtn.evaluate((el) => getComputedStyle(el).color)
+  check('primary button has contrasting text color', bg !== fg && fg !== 'rgba(0, 0, 0, 0)', `${bg} vs ${fg}`)
+  const link = dialog.locator('a[href="https://developers.eveonline.com/static-data"]')
+  await link.waitFor({ timeout: 5000 })
+  const linkText = await link.textContent()
+  check('official static-data link present', linkText !== null && linkText.length > 0, linkText)
+
   // D) Rollback with one version → NO_ROLLBACK error box.
   await dialog.getByRole('button', { name: '回滚', exact: true }).click()
   await dialog.getByText('没有可回滚的旧版本').first().waitFor({ timeout: 20_000 })

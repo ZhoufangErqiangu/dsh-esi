@@ -25,6 +25,7 @@ export type SdeCardLocaleKey =
   | 'error'
   | 'noStatus'
   | 'noData'
+  | 'officialDataLink'
   | 'expand'
   | 'collapse'
 
@@ -50,6 +51,7 @@ export const zh: Record<SdeCardLocaleKey, string> = {
   error: '失败',
   noStatus: '等待状态…',
   noData: '尚未安装 SDE 数据',
+  officialDataLink: '官方静态数据下载页（developers.eveonline.com/static-data）',
   expand: '展开',
   collapse: '收起',
 }
@@ -76,6 +78,7 @@ export const en: Record<SdeCardLocaleKey, string> = {
   error: 'Failed',
   noStatus: 'Waiting for status…',
   noData: 'No SDE data installed yet',
+  officialDataLink: 'Official static data downloads (developers.eveonline.com/static-data)',
   expand: 'Expand',
   collapse: 'Collapse',
 }

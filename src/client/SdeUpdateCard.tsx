@@ -117,9 +117,26 @@ const buttonBase: CSSProperties = {
 
 const primaryButton: CSSProperties = {
   ...buttonBase,
-  background: 'var(--dsw-alias-brand-primary)',
+  // The theme's primary button pair: fill = brand-primary (near-black in
+  // light, near-white in dark), text = label-primary-foreground (the
+  // contrasting tone). brand-primary-invert is NOT the text color here —
+  // it equals brand-primary in both modes, which would make the label
+  // invisible on the fill.
+  background: 'var(--dsw-alias-button-primary-fill)',
   borderColor: 'transparent',
-  color: 'var(--dsw-alias-brand-primary-invert)',
+  color: 'var(--dsw-alias-label-primary-foreground)',
+}
+
+const primaryButtonHover: CSSProperties = {
+  ...primaryButton,
+  background: 'var(--dsw-alias-button-primary-hover)',
+}
+
+const linkStyle: CSSProperties = {
+  color: 'var(--dsw-alias-label-secondary)',
+  fontSize: 12,
+  textDecoration: 'underline',
+  textUnderlineOffset: 2,
 }
 
 const disabledButton: CSSProperties = {
@@ -176,6 +193,7 @@ export function SdeUpdateCard(props: SdeUpdateCardProps) {
   const [open, setOpen] = useState(false)
   const [url, setUrl] = useState('')
   const [invalid, setInvalid] = useState<string | undefined>(undefined)
+  const [updateHover, setUpdateHover] = useState(false)
 
   if (!state.available) {
     return (
@@ -238,9 +256,11 @@ export function SdeUpdateCard(props: SdeUpdateCardProps) {
           <div style={fieldRowStyle}>
             <button
               type="button"
-              style={state.busy ? disabledButton : primaryButton}
+              style={state.busy ? disabledButton : updateHover ? primaryButtonHover : primaryButton}
               disabled={state.busy || !state.writable}
               onClick={startUpdate}
+              onMouseEnter={() => { setUpdateHover(true) }}
+              onMouseLeave={() => { setUpdateHover(false) }}
             >
               {t('update')}
             </button>
@@ -254,6 +274,15 @@ export function SdeUpdateCard(props: SdeUpdateCardProps) {
             </button>
             <span style={hintStyle}>{t('rollbackHint')}</span>
           </div>
+
+          <a
+            href="https://developers.eveonline.com/static-data"
+            target="_blank"
+            rel="noreferrer"
+            style={linkStyle}
+          >
+            {t('officialDataLink')}
+          </a>
 
           {invalid !== undefined && <div style={errorStyle}>{invalid}</div>}
           {status === undefined && (
