@@ -4,6 +4,7 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "lib": ["ES2022", "DOM"],
+    "jsx": "react-jsx",
     "types": ["node"],
     "typeRoots": ["../deepseek-harness/node_modules/@types"],
     "strict": true,
@@ -19,8 +20,20 @@
       ],
       "@deepseek-ai/dsh-tools": [
         "../deepseek-harness/packages/core/tools/lib/types/index.d.ts"
+      ],
+      "react": [
+        "./node_modules/@types/react/index.d.ts"
+      ],
+      "react/jsx-runtime": [
+        "./node_modules/@types/react/jsx-runtime.d.ts"
+      ],
+      "react-dom": [
+        "./node_modules/@types/react-dom/index.d.ts"
+      ],
+      "react-dom/client": [
+        "./node_modules/@types/react-dom/client.d.ts"
       ]
     }
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts", "src/**/*.tsx"]
 }

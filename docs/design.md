@@ -184,7 +184,7 @@ prompt 指引段（systemPrompt.section，约 300 token）：
 
 **官方 SDE zip 转换器（CSV/YAML → jsonl）为待办**：按 `SdeUpdateSource` 接口实现 `OfficialZipSdeSource`（下载 → 解压 → 并行转换 → 校验 → 交付版本目录），转换规范以现有 jsonl 约定为准。
 
-设置页卡片（下载地址输入框 + 更新按钮）的 host 端管线（`SdeGuiRunner` 状态机 + `dsh-esi` settings 命名空间桥）已实现并测试，但浏览器端卡片需将 dsh-esi 作为 `dsh.client` 包接入 web bundle（harness node_modules 符号链接或改 web 组合），当前未启用；更新入口为 `sde_update` 聊天工具。
+设置页卡片（下载地址输入框 + 更新/回滚按钮 + 实时进度/错误展示）已启用并完成端到端调试（`scripts/verify-card.mjs`，7/7 场景）。架构：dsh-esi 是 `dsh.client` 双面包——浏览器半 `src/client/` 经 tsdown 打成 `lib/client.js`（`__ModuleLoader__.load` 协议、externals=冻结模块表），以 `key: 'dsh-esi'` 注册进 `settings.plugin.item`（该槽在当前 harness 中为 keyed，按 settings 命名空间键控）；host 半 `attachSdeGui` 注册 `dsh-esi` 命名空间并监听 `sdeUpdateRequest`/`sdeRollbackRequest`（非零 nonce 触发），状态经 `replace()` 写回 `sdeUpdateStatus`（用 replace 而非 update，避免深合并残留下载阶段的 progress 等旧字段），浏览器经 `settings/document-updated` 转发事件实时刷新。挂载前提：profile 兄弟 `node_modules` 内符号链接 `@dsh-esi/plugin-esi` → 本仓库，patch 用包名挂载。更新入口：设置页卡片或 `sde_update` 聊天工具（共用同一 `SdeGuiRunner`，并发防护）。
 - 官方 zip 实测 URL（2026-08）：`https://eve-static-data-export.s3-eu-west-1.amazonaws.com/tranquility/sde.zip`（HEAD 200，约 112MB）；国服同桶 `serenity/sde.zip` 返回 403（未发布），国服数据更新需以世界服 zip 为准或另寻源。
 - 转换器依赖：CSV 解析（`*` 列名头 + `<table>_<lang>.csv` 语言文件合并）可纯 Node 实现；fsd YAML 需引入最小 YAML 解析依赖（如 `yaml`），按 `SdeUpdateSource` 接口交付。
 

@@ -5,3 +5,4 @@ lib/
 
 # SDE static data is downloaded/managed by sde_update, not versioned
 data/
+.gui-home/

@@ -35,7 +35,8 @@ import {
 import { ESI_GUIDE, ESI_GUIDE_SECTION_NAME } from './prompt.ts'
 import { SdeService } from './sde/service.ts'
 import { SdeUpdater } from './sde/update.ts'
-import { SdeGuiRunner, type SdeGuiStatus } from './sde/gui-runner.ts'
+import { attachSdeGui } from './sde/gui-bridge.ts'
+import type { SdeGuiStatus } from './sde/gui-runner.ts'
 import { createSdeQueryTool, createSdeStatusTool } from './tools/sde.ts'
 import { createSdeRollbackTool, createSdeUpdateTool } from './tools/sde-update.ts'
 import { createAccountsTool, createAuthorizeTool, createDeauthorizeTool } from './tools/authorize.ts'
@@ -113,10 +114,11 @@ export function apply(ctx: Context, config: EsiaPluginConfig = {}): void {
     source: config.sdeUpdateSource,
     defaultLanguage: config.sdeLanguage,
   })
-  // URL-driven updates: sde_update accepts a download URL (zip mirror) even
-  // without a configured source. The runner reports progress through status
-  // callbacks; here they are collected and the final status returned.
-  const sdeRunner = new SdeGuiRunner({
+  // The GUI bridge registers the `dsh-esi` settings namespace (the settings
+  // card binds it) and watches its trigger fields; the shared runner also
+  // backs the sde_update url tool, so chat and card never run concurrently
+  // against the same data root.
+  const sdeRunner = attachSdeGui(ctx, {
     dataRoot: config.dataRoot ?? defaultDataRoot(),
     defaultLanguage: config.sdeLanguage,
   })

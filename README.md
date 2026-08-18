@@ -46,7 +46,9 @@ DSH（DeepSeek Harness）插件：接入 **EVE Online ESI API**（204 个端点�
   2. 任意下载地址：`sde_update` 传 `url` 参数（http/https，指向**jsonl 镜像 zip**：内含 `manifest.json` + 各表 `.jsonl`）。无需预配置源；dry-run 先 HEAD 探测可达性与大小，确认后下载 → 校验（zip 完整性 / zip-slip 防护 / 载荷校验）→ 构建索引 → 原子切换，旧版本保留可回滚。
 - 错误处理：URL 校验（仅 http/https）、连接失败/超时/HTTP 状态/下载中断按类型报错并自动重试瞬时故障、文件大小上限、磁盘空间不足提示；所有错误返回稳定 `code` + 中文 `message`（见 `src/sde/zip-source.ts` 的 `SdeZipError`）。
 - 官方 SDE zip（CSV/YAML）转换器为待办：按 `SdeUpdateSource` 接口实现 `OfficialZipSdeSource`。
-- 设置页卡片（下载地址输入框 + 更新按钮）已实现 host 端全部管线，但浏览器端卡片需要把 dsh-esi 作为 `dsh.client` 包接入 web bundle（需在 harness 的 node_modules 挂符号链接或改 web 组合），目前**未启用**——更新请走 `sde_update` 聊天工具。
+- 设置页卡片（下载地址输入框 + 更新/回滚按钮 + 实时进度/错误展示）已启用：dsh-esi 是 `dsh.client` 双面包，浏览器 bundle（`lib/client.js`）经 loader 的 client 行机制挂载进 web 组合，卡片注册在“设置 → 插件 → 插件配置”，按 `dsh-esi` settings 命名空间键控（host 端 `attachSdeGui` 注册该命名空间并监听触发字段，状态经 `settings/document-updated` 事件实时回推浏览器）。
+  - 挂载前提：profile 目录的兄弟 `node_modules`（如 `~/.dsh/profiles/node_modules/@dsh-esi/plugin-esi`）需符号链接到本仓库，且 `cordis.patch.yml` 里插件行用包名 `@dsh-esi/plugin-esi`（而非绝对路径）；浏览器与 host 都经同一包名解析。
+  - 调试：`node scripts/verify-card.mjs` 在 3081 临时实例上驱动真实浏览器跑通卡片全流程（卡片出现、客户端校验、404 错误、完整更新、回滚）。
 
 ## 开发
 
