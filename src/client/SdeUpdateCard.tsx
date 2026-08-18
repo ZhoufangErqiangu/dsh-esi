@@ -3,8 +3,14 @@
  * rollback button, and a live status area fed by the host through the
  * `dsh-esi` settings namespace.
  *
- * The card is self-contained (no imports beyond the platform module table):
- * markup is plain elements with inline styles over the theme CSS variables.
+ * Visual language mirrors the shipped plugin cards (PluginCard.tsx /
+ * fields.tsx in ui-settings-plugins): same container tokens (border-l2 /
+ * bg-layer-3, 12px radius, disclosure header with name over description and
+ * a rotating chevron), the same field treatment (label over a 34px
+ * layer-3 input with border-l2, hint in label-tertiary), and the same
+ * footer buttons (ghost discard-style secondary, label-primary save-style
+ * primary). The card stays self-contained (no imports beyond the platform
+ * module table), so these are inline styles over the theme variables.
  */
 
 import { useState } from 'react'
@@ -32,176 +38,285 @@ const PHASE_KEYS: Record<string, SdeCardLocaleKey> = {
   error: 'error',
 }
 
-// ---- inline styles over the theme tokens -----------------------------------
+// ---- official card chrome (PluginCard.module.css) over inline styles -------
 
-const cardStyle: CSSProperties = {
+const card: CSSProperties = {
+  listStyle: 'none',
   border: '1px solid var(--dsw-alias-border-l2)',
-  borderRadius: 10,
-  background: 'var(--dsw-alias-bg-layer-1)',
-  padding: '10px 14px',
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 8,
+  borderRadius: 12,
+  background: 'var(--dsw-alias-bg-layer-3)',
+  transition: 'border-color .16s, background .16s',
 }
 
-const headerStyle: CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  gap: 8,
+const cardOpen: CSSProperties = {
+  ...card,
+  background: 'var(--dsw-alias-bg-layer-2)',
+  borderColor: 'var(--dsw-alias-label-dimmed)',
+}
+
+const cardHover: CSSProperties = {
+  ...card,
+  borderColor: 'var(--dsw-alias-label-dimmed)',
+}
+
+const cardOpenHover: CSSProperties = {
+  ...cardOpen,
+}
+
+const header: CSSProperties = {
+  width: '100%',
+  appearance: 'none',
+  border: 0,
   background: 'none',
-  border: 'none',
-  padding: 0,
-  cursor: 'pointer',
-  color: 'var(--dsw-alias-label-primary)',
-  fontSize: 14,
-  fontWeight: 600,
+  font: 'inherit',
+  color: 'inherit',
   textAlign: 'left',
-}
-
-const bodyStyle: CSSProperties = {
+  cursor: 'pointer',
   display: 'flex',
-  flexDirection: 'column',
-  gap: 10,
-  marginTop: 2,
-}
-
-const descriptionStyle: CSSProperties = {
-  color: 'var(--dsw-alias-label-secondary)',
-  fontSize: 12,
-  lineHeight: 1.5,
-  margin: 0,
-}
-
-const fieldRowStyle: CSSProperties = {
-  display: 'flex',
-  gap: 8,
   alignItems: 'center',
+  gap: 12,
+  padding: '14px 16px',
+  borderRadius: 12,
 }
 
-const inputStyle: CSSProperties = {
+const headText: CSSProperties = {
   flex: 1,
   minWidth: 0,
-  padding: '6px 10px',
-  borderRadius: 6,
-  border: '1px solid var(--dsw-alias-border-l2)',
-  background: 'var(--dsw-alias-bg-base)',
-  color: 'var(--dsw-alias-label-primary)',
-  fontSize: 13,
-  fontFamily: 'var(--dsw-font-family)',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 4,
 }
 
-const labelStyle: CSSProperties = {
-  color: 'var(--dsw-alias-label-secondary)',
-  fontSize: 12,
-  whiteSpace: 'nowrap',
-}
-
-const hintStyle: CSSProperties = {
-  color: 'var(--dsw-alias-label-dimmed)',
-  fontSize: 11,
-  lineHeight: 1.45,
-  margin: 0,
-}
-
-const buttonBase: CSSProperties = {
-  padding: '6px 14px',
-  borderRadius: 6,
-  border: '1px solid var(--dsw-alias-border-l2)',
-  fontSize: 13,
-  cursor: 'pointer',
-  fontWeight: 500,
-  background: 'var(--dsw-alias-bg-base)',
+const name: CSSProperties = {
+  fontSize: 15,
+  fontWeight: 600,
+  lineHeight: 1.4,
   color: 'var(--dsw-alias-label-primary)',
 }
 
-const primaryButton: CSSProperties = {
-  ...buttonBase,
-  // The theme's primary button pair: fill = brand-primary (near-black in
-  // light, near-white in dark), text = label-primary-foreground (the
-  // contrasting tone). brand-primary-invert is NOT the text color here —
-  // it equals brand-primary in both modes, which would make the label
-  // invisible on the fill.
-  background: 'var(--dsw-alias-button-primary-fill)',
-  borderColor: 'transparent',
-  color: 'var(--dsw-alias-label-primary-foreground)',
+const description: CSSProperties = {
+  fontSize: 13,
+  lineHeight: 1.5,
+  color: 'var(--dsw-alias-label-tertiary)',
 }
 
-const primaryButtonHover: CSSProperties = {
-  ...primaryButton,
-  background: 'var(--dsw-alias-button-primary-hover)',
+const chevron: CSSProperties = {
+  flex: 'none',
+  color: 'var(--dsw-alias-label-tertiary)',
+  transition: 'transform .16s',
 }
 
-const linkStyle: CSSProperties = {
-  color: 'var(--dsw-alias-label-secondary)',
-  fontSize: 12,
-  textDecoration: 'underline',
-  textUnderlineOffset: 2,
+const chevronOpen: CSSProperties = {
+  ...chevron,
+  transform: 'rotate(180deg)',
 }
 
-const disabledButton: CSSProperties = {
-  ...buttonBase,
-  opacity: 0.45,
-  cursor: 'not-allowed',
+const body: CSSProperties = {
+  borderTop: '1px solid var(--dsw-alias-border-l2)',
+  margin: '0 16px',
+  paddingBottom: 8,
 }
 
-const statusRowStyle: CSSProperties = {
+// ---- official field treatment (fields.module.css) --------------------------
+
+const field: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 6,
+  padding: '12px 0',
+}
+
+const fieldHead: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   gap: 8,
+}
+
+const fieldLabel: CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  fontSize: 13,
+  fontWeight: 500,
+  lineHeight: 1.5,
+  color: 'var(--dsw-alias-label-primary)',
+}
+
+const inputBase: CSSProperties = {
+  height: 34,
+  padding: '0 12px',
+  border: '1px solid var(--dsw-alias-border-l2)',
+  borderRadius: 8,
+  background: 'var(--dsw-alias-bg-layer-3)',
+  font: 'inherit',
+  fontSize: 13,
+  lineHeight: 1.5,
+  color: 'var(--dsw-alias-label-primary)',
+}
+
+const inputFocus: CSSProperties = {
+  ...inputBase,
+  borderColor: 'var(--dsw-alias-brand-primary)',
+}
+
+const inputDisabled: CSSProperties = {
+  ...inputBase,
+  color: 'var(--dsw-alias-label-tertiary)',
+  cursor: 'default',
+}
+
+const hint: CSSProperties = {
+  margin: 0,
   fontSize: 12,
+  lineHeight: 1.5,
+  color: 'var(--dsw-alias-label-tertiary)',
+}
+
+const invalidTextStyle: CSSProperties = {
+  margin: 0,
+  fontSize: 12,
+  lineHeight: 1.5,
+  color: 'var(--dsw-alias-label-error)',
+}
+
+// ---- status area ------------------------------------------------------------
+
+const statusRow: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  padding: '0 0 12px',
+}
+
+const badge: CSSProperties = {
+  flex: 'none',
+  borderRadius: 999,
+  padding: '1px 8px',
+  fontSize: 11,
+  lineHeight: 17,
+  whiteSpace: 'nowrap',
+  fontWeight: 500,
+  background: 'var(--dsw-alias-bg-module-platform)',
   color: 'var(--dsw-alias-label-secondary)',
 }
 
-const chipStyle: CSSProperties = {
-  padding: '1px 8px',
-  borderRadius: 999,
-  fontSize: 11,
-  border: '1px solid var(--dsw-alias-border-l2)',
+const statusMessage: CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  margin: 0,
+  fontSize: 12,
+  lineHeight: 1.5,
   color: 'var(--dsw-alias-label-secondary)',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
 }
 
-const trackStyle: CSSProperties = {
+const track: CSSProperties = {
+  flex: 'none',
+  width: 96,
   height: 4,
   borderRadius: 2,
-  background: 'var(--dsw-alias-bg-base)',
+  background: 'var(--dsw-alias-bg-module-platform)',
   overflow: 'hidden',
-  flex: 1,
 }
 
-const errorStyle: CSSProperties = {
-  borderRadius: 6,
-  padding: '8px 10px',
+const errorText: CSSProperties = {
+  margin: 0,
+  padding: '0 0 12px',
   fontSize: 12,
   lineHeight: 1.5,
-  color: 'var(--dsw-alias-label-primary)',
-  background: 'var(--dsw-alias-interactive-bg-hover-danger)',
-  border: '1px solid var(--dsw-alias-border-l2)',
+  color: 'var(--dsw-alias-label-error)',
   whiteSpace: 'pre-wrap',
   wordBreak: 'break-word',
 }
 
+// ---- footer (PluginCard.module.css footer/discard/save) ---------------------
+
+const footer: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  padding: '12px 0 4px',
+  borderTop: '1px solid var(--dsw-alias-border-l2)',
+}
+
+const link: CSSProperties = {
+  marginRight: 'auto',
+  color: 'var(--dsw-alias-label-secondary)',
+  fontSize: 12,
+  lineHeight: 1.5,
+  textDecoration: 'underline',
+  textUnderlineOffset: 2,
+}
+
+const secondaryButton: CSSProperties = {
+  appearance: 'none',
+  border: '1px solid var(--dsw-alias-border-l2)',
+  borderRadius: 8,
+  padding: '5px 14px',
+  font: 'inherit',
+  fontSize: 13,
+  lineHeight: 1.5,
+  cursor: 'pointer',
+  background: 'none',
+  color: 'var(--dsw-alias-label-secondary)',
+}
+
+const primaryButton: CSSProperties = {
+  appearance: 'none',
+  border: '1px solid transparent',
+  borderRadius: 8,
+  padding: '5px 14px',
+  font: 'inherit',
+  fontSize: 13,
+  lineHeight: 1.5,
+  cursor: 'pointer',
+  background: 'var(--dsw-alias-label-primary)',
+  color: 'var(--dsw-alias-bg-layer-3)',
+}
+
+const buttonDisabled: CSSProperties = {
+  opacity: 0.4,
+  cursor: 'default',
+}
+
+/** Outline chevron-down matching IconChevronDownOutline14's geometry. */
+function ChevronIcon({ open }: { open: boolean }) {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 14 14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      style={open ? chevronOpen : chevron}
+    >
+      <path d="M3 5.5 7 9.5 11 5.5" />
+    </svg>
+  )
+}
+
 /**
- * Render the SDE update card.
+ * Render the SDE update card. Like the shipped cards, it renders nothing
+ * while its namespace is unavailable (the tab only dispatches served
+ * namespaces, so an absent namespace means the host half is not composed).
  * @param props - locale copy, the card snapshot, and its trigger actions.
- * @returns the card, or a notice when the namespace is unavailable.
+ * @returns the card.
  */
 export function SdeUpdateCard(props: SdeUpdateCardProps) {
   const { t } = props
   const state = props.useSdeCard((snapshot) => snapshot)
   const [open, setOpen] = useState(false)
+  const [cardHovered, setCardHovered] = useState(false)
   const [url, setUrl] = useState('')
+  const [urlFocused, setUrlFocused] = useState(false)
   const [invalid, setInvalid] = useState<string | undefined>(undefined)
-  const [updateHover, setUpdateHover] = useState(false)
 
-  if (!state.available) {
-    return (
-      <li style={cardStyle}>
-        <div style={{ color: 'var(--dsw-alias-label-dimmed)', fontSize: 12 }}>{t('unavailable')}</div>
-      </li>
-    )
-  }
+  if (!state.available) return null
 
   const startUpdate = (): void => {
     const trimmed = url.trim()
@@ -220,84 +335,65 @@ export function SdeUpdateCard(props: SdeUpdateCardProps) {
 
   const status = state.status
   const phaseKey = status === undefined ? undefined : PHASE_KEYS[status.phase]
+  const cardStyle = cardHovered ? (open ? cardOpenHover : cardHover) : (open ? cardOpen : card)
 
   return (
-    <li style={cardStyle}>
+    <li
+      style={cardStyle}
+      onMouseEnter={() => { setCardHovered(true) }}
+      onMouseLeave={() => { setCardHovered(false) }}
+    >
       <button
         type="button"
-        style={headerStyle}
+        style={header}
         aria-expanded={open}
         aria-label={`${t(open ? 'collapse' : 'expand')}: ${t('title')}`}
         onClick={() => { setOpen(!open) }}
       >
-        <span>{t('title')}</span>
-        <span aria-hidden style={{ fontSize: 10, color: 'var(--dsw-alias-label-dimmed)' }}>
-          {open ? '▾' : '▸'}
+        <span style={headText}>
+          <span style={name}>{t('title')}</span>
+          <span style={description}>{t('description')}</span>
         </span>
+        <ChevronIcon open={open} />
       </button>
 
       {open && (
-        <div style={bodyStyle}>
-          <p style={descriptionStyle}>{t('description')}</p>
-
-          <div style={fieldRowStyle}>
-            <label htmlFor="dsh-esi-sde-url" style={labelStyle}>{t('urlLabel')}</label>
+        <div style={body}>
+          <div style={field}>
+            <div style={fieldHead}>
+              <label htmlFor="dsh-esi-sde-url" style={fieldLabel}>{t('urlLabel')}</label>
+            </div>
             <input
               id="dsh-esi-sde-url"
               type="text"
-              style={inputStyle}
+              style={state.busy || !state.writable ? inputDisabled : urlFocused ? inputFocus : inputBase}
               value={url}
               disabled={state.busy || !state.writable}
               placeholder={t('urlPlaceholder')}
+              aria-invalid={invalid !== undefined}
               onChange={(event) => { setUrl(event.target.value) }}
+              onFocus={() => { setUrlFocused(true) }}
+              onBlur={() => { setUrlFocused(false) }}
             />
+            <p style={invalid !== undefined ? invalidTextStyle : hint}>
+              {invalid !== undefined ? invalid : t('urlHint')}
+            </p>
           </div>
 
-          <div style={fieldRowStyle}>
-            <button
-              type="button"
-              style={state.busy ? disabledButton : updateHover ? primaryButtonHover : primaryButton}
-              disabled={state.busy || !state.writable}
-              onClick={startUpdate}
-              onMouseEnter={() => { setUpdateHover(true) }}
-              onMouseLeave={() => { setUpdateHover(false) }}
-            >
-              {t('update')}
-            </button>
-            <button
-              type="button"
-              style={state.busy ? disabledButton : buttonBase}
-              disabled={state.busy || !state.writable}
-              onClick={startRollback}
-            >
-              {t('rollback')}
-            </button>
-            <span style={hintStyle}>{t('rollbackHint')}</span>
-          </div>
-
-          <a
-            href="https://developers.eveonline.com/static-data"
-            target="_blank"
-            rel="noreferrer"
-            style={linkStyle}
-          >
-            {t('officialDataLink')}
-          </a>
-
-          {invalid !== undefined && <div style={errorStyle}>{invalid}</div>}
-          {status === undefined && (
-            <div style={statusRowStyle}><span>{t('noStatus')}</span></div>
-          )}
           {status !== undefined && (
-            <div style={statusRowStyle}>
-              <span style={chipStyle}>
+            <div style={statusRow}>
+              <span style={badge}>
                 {phaseKey === undefined ? status.phase : t(phaseKey)}
               </span>
-              <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {status.message}
-              </span>
+              <p style={statusMessage}>{status.message}</p>
               {status.progress !== undefined && (
-                <div style={trackStyle} role="progressbar" aria-valuenow={Math.round(status.progress * 100)} aria-valuemin={0} aria-valuemax={100}>
+                <div
+                  style={track}
+                  role="progressbar"
+                  aria-valuenow={Math.round(status.progress * 100)}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                >
                   <div style={{
                     height: '100%',
                     width: `${Math.round(Math.min(1, Math.max(0, status.progress)) * 100)}%`,
@@ -308,10 +404,35 @@ export function SdeUpdateCard(props: SdeUpdateCardProps) {
             </div>
           )}
           {status?.error !== undefined && status.error.message !== undefined && (
-            <div style={errorStyle} role="alert">
-              {status.error.message}
-            </div>
+            <p style={errorText} role="alert">{status.error.message}</p>
           )}
+
+          <div style={footer}>
+            <a
+              href="https://developers.eveonline.com/static-data"
+              target="_blank"
+              rel="noreferrer"
+              style={link}
+            >
+              {t('officialDataLink')}
+            </a>
+            <button
+              type="button"
+              style={state.busy ? { ...secondaryButton, ...buttonDisabled } : secondaryButton}
+              disabled={state.busy || !state.writable}
+              onClick={startRollback}
+            >
+              {t('rollback')}
+            </button>
+            <button
+              type="button"
+              style={state.busy ? { ...primaryButton, ...buttonDisabled } : primaryButton}
+              disabled={state.busy || !state.writable}
+              onClick={startUpdate}
+            >
+              {t('update')}
+            </button>
+          </div>
         </div>
       )}
     </li>
