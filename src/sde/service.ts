@@ -130,6 +130,11 @@ export class SdeService {
   }
 
   async query(options: SdeQueryOptions): Promise<SdeQueryResult> {
+    return Promise.resolve(this.querySync(options))
+  }
+
+  /** Synchronous twin of {@link query} (the sqlite backend is sync anyway); used by the settings bridge to build static catalogs at registration time. */
+  querySync(options: SdeQueryOptions): SdeQueryResult {
     const versionDir = this.resolveVersionDir()
     const manifest = this.readManifest(versionDir)
     const table = options.table

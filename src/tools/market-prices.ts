@@ -46,16 +46,21 @@ interface RegionOrderStats {
   buy_orders: number
 }
 
-export function createMarketPricesTool(client: EsiaClient, sde?: SdeService) {
+export function createMarketPricesTool(
+  client: EsiaClient,
+  sde?: SdeService,
+  options: { defaultRegionId?: () => number | undefined } = {},
+) {
   // Server-wide price list cache, keyed by server id (one plugin = one server).
   const pricesCache = new Map<string, PricesCacheEntry>()
+  const defaultRegionId = options.defaultRegionId ?? (() => undefined)
 
   return defineTool({
     name: 'esi_market_prices',
     description:
       'One-call market price snapshot for a basket of item type IDs. Returns per type: '
       + 'server-wide average_price / adjusted_price (cached) and, for the given region '
-      + '(default The Forge / Jita, region_id 10000002), the best sell price (lowest sell order), '
+      + '(defaults to the configured default market region, else The Forge / Jita, region_id 10000002), the best sell price (lowest sell order), '
       + 'best buy price (highest buy order), the volume available at each best price, and order counts. '
       + 'Optionally attaches localized item names from the SDE (include_names, default true). '
       + 'This is the dedicated hot-path tool for "what does this item cost" — prefer it over raw '
@@ -69,7 +74,7 @@ export function createMarketPricesTool(client: EsiaClient, sde?: SdeService) {
       },
       region_id: {
         type: 'integer',
-        description: `Region for best-buy/best-sell order stats (defaults to The Forge / Jita, ${DEFAULT_REGION_ID}).`,
+        description: 'Region for best-buy/best-sell order stats (defaults to the configured default market region, else The Forge / Jita).',
       },
       include_names: {
         type: 'boolean',
@@ -93,7 +98,9 @@ export function createMarketPricesTool(client: EsiaClient, sde?: SdeService) {
       if (typeIds.length > MAX_TYPE_IDS) {
         throw new Error(`esi_market_prices accepts at most ${MAX_TYPE_IDS} type_ids, got ${typeIds.length}`)
       }
-      const regionId = args.region_id === undefined ? DEFAULT_REGION_ID : Number(args.region_id)
+      const regionId = args.region_id === undefined
+        ? (defaultRegionId() ?? DEFAULT_REGION_ID)
+        : Number(args.region_id)
       const includeNames = args.include_names !== false
       const language = args.language as SdeLanguage | undefined
 

@@ -1,8 +1,10 @@
 /**
- * dsh-esi browser half: contributes the SDE-update card into the Plugins
- * settings section (`settings.plugin.item` slot). The card binds the
- * `dsh-esi` settings namespace the host half registers — it never talks to
- * the host directly, so no harness RPC surface is involved.
+ * dsh-esi browser half: contributes two settings cards into the Plugins
+ * settings section (`settings.plugin.item` slot, keyed by namespace):
+ * - `dsh-esi`        → the SDE-update card
+ * - `dsh-esi-account` → the EVE account & market card
+ * Each card binds the settings namespace the host half registers — the cards
+ * never talk to the host directly, so no harness RPC surface is involved.
  */
 
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
@@ -13,7 +15,9 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import { SdeUpdateCard, LOCALE_NS } from './SdeUpdateCard.tsx'
 import { SdeCardController, type SdeGuiSection } from './sde-card-controller.ts'
-import { en, zh } from './locales.ts'
+import { EveAccountCard, ACCOUNT_LOCALE_NS } from './EveAccountCard.tsx'
+import { EveAccountCardController, type EveAccountSection } from './eve-account-card-controller.ts'
+import { en, enAccount, zh, zhAccount } from './locales.ts'
 
 // The `settings.plugin.item` slot type is owned by the shipped
 // ui-settings-plugins package; the browser half of dsh-esi cannot value-import
@@ -31,24 +35,39 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 /** Services the fiber injects (mirrors the package.json dsh.client list). */
 export const inject = ['slots', 'locale', 'connection', 'remote', 'settingsScope']
 
-/** The settings namespace the card binds; spelled here to match the host half. */
+/** The settings namespaces the cards bind; spelled here to match the host half. */
 export const SDE_NS = 'dsh-esi'
+export const ACCOUNT_NS = 'dsh-esi-account'
 
-/** Mount the card into the Plugins settings section. */
+/** Mount both cards into the Plugins settings section. */
 export function apply(ctx: ClientContext): void {
-  ctx.effect(() => ctx.locale.register(LOCALE_NS, { zh, en }), 'dsh-esi: sde card dictionaries')
+  ctx.effect(
+    () => ctx.locale.register(LOCALE_NS, { zh, en }) && ctx.locale.register(ACCOUNT_LOCALE_NS, { zh: zhAccount, en: enAccount }),
+    'dsh-esi: card dictionaries',
+  )
 
-  const t = ctx.locale.bind(LOCALE_NS)
-  const controller = new SdeCardController(
+  const sdeT = ctx.locale.bind(LOCALE_NS)
+  const sdeController = new SdeCardController(
     ctx.settingsScope.bind<SdeGuiSection>({ namespace: SDE_NS }),
-    t,
+    sdeT,
+  )
+
+  const accountT = ctx.locale.bind(ACCOUNT_LOCALE_NS)
+  const accountController = new EveAccountCardController(
+    ctx.settingsScope.bind<EveAccountSection>({ namespace: ACCOUNT_NS }),
+    accountT,
   )
 
   ctx.slots.inject('settings.plugin.item', function* () {
     yield ctx.slots.register({
       name: 'settings.plugin.item',
       key: SDE_NS,
-      inject: () => controller.inject(),
+      inject: () => sdeController.inject(),
     }, SdeUpdateCard)
+    yield ctx.slots.register({
+      name: 'settings.plugin.item',
+      key: ACCOUNT_NS,
+      inject: () => accountController.inject(),
+    }, EveAccountCard)
   })
 }

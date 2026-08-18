@@ -77,6 +77,14 @@ const check = (name, ok, detail = '') => {
   console.log(`${ok ? '✔' : '✖'} ${name}${detail ? ` — ${detail}` : ''}`)
 }
 
+async function dismissAll() {
+  for (let i = 0; i < 5; i++) {
+    const dlg = page.getByRole('dialog').filter({ hasNotText: '设置' }).first()
+    try { await dlg.waitFor({ timeout: 2000 }) } catch { return }
+    await dlg.getByRole('button').first().click()
+    await dlg.waitFor({ state: 'hidden', timeout: 8000 }).catch(() => {})
+  }
+}
 const browser = await chromium.launch({
   executablePath: '/home/alex/.cache/ms-playwright/chromium_headless_shell-1208/chrome-headless-shell-linux64/chrome-headless-shell',
 })
@@ -178,6 +186,41 @@ try {
   await dialog.getByText('没有可回滚的旧版本').first().waitFor({ timeout: 20_000 })
   check('rollback with single version reports NO_ROLLBACK', true)
   await page.screenshot({ path: join(SHOTS, '6-rollback-error.png') })
+  // ---- EVE account & market card ------------------------------------------
+  // Re-open the settings fresh to pick up both cards.
+  await page.keyboard.press('Escape')
+  await dialog.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {})
+  await dismissAll()
+  await page.getByRole('button', { name: '设置', exact: true }).click({ force: true })
+  await dismissAll()
+  const dialog2 = page.getByRole('dialog', { name: '设置' })
+  await dialog2.waitFor({ timeout: 10_000 })
+  await dialog2.getByRole('button', { name: '插件', exact: true }).click()
+  await dialog2.getByRole('tab', { name: '插件配置', exact: true }).click()
+
+  const accountHeader = dialog2.getByRole('button', { name: /EVE 账号与市场/ })
+  await accountHeader.waitFor({ timeout: 10_000 })
+  check('account card present in 插件配置', true)
+  await accountHeader.click({ force: true })
+
+  // Region catalog (fallback hubs; the temp SDE has no mapRegions) + selection.
+  const regionSelect = dialog2.locator('#dsh-esi-market-region')
+  await regionSelect.waitFor({ timeout: 5000 })
+  const optionCount = await regionSelect.locator('option').count()
+  check('region select populated', optionCount > 5, `${optionCount} options`)
+  const jitaCount = await regionSelect.locator('option[value="10000002"]').count()
+  check('Jita hub present in region catalog', jitaCount === 1)
+  await regionSelect.selectOption({ value: '10000002' })
+  await new Promise((r) => setTimeout(r, 800))
+  const regionPersisted = await readSettingsYaml().then((y) => y.includes('defaultMarketRegionId: 10000002'))
+  check('region selection persists', regionPersisted)
+
+  // Login without a client id → typed error status from the host.
+  await dialog2.getByRole('button', { name: '登录 EVE', exact: true }).click()
+  await dialog2.getByText(/未配置|client id/i).first().waitFor({ timeout: 20_000 })
+  check('login without clientId surfaces typed error', true)
+  await page.screenshot({ path: join(SHOTS, '7-account-card.png') })
+
 } catch (error) {
   console.log('SCRIPT ERROR:', error.message)
   await page.screenshot({ path: join(SHOTS, 'failure.png') }).catch(() => {})
@@ -185,6 +228,10 @@ try {
 } finally {
   await browser.close()
   server.close()
+}
+
+async function readSettingsYaml() {
+  return (await import('node:fs/promises')).readFile('/home/alex/project/dsh-esi/.gui-home/settings.yaml', 'utf8')
 }
 
 const failed = results.filter((r) => !r.ok)

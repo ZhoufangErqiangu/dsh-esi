@@ -22,6 +22,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { JsonValue } from '@deepseek-ai/dsh-tools'
 import { EsiaAuthService } from './auth/service.ts'
 import { TokenStore } from './auth/token-store.ts'
+import { AccountBridge } from './account/account-bridge.ts'
 import type { EsiaAbortSignal, EsiaClientConfig, ServerId } from './esia-client.ts'
 import { EsiaClient } from './esia-client.ts'
 import {
@@ -77,6 +78,8 @@ export interface EsiaPluginConfig {
   sdeLanguage?: 'de' | 'en' | 'es' | 'fr' | 'ja' | 'ko' | 'ru' | 'zh'
   /** SDE update source (default: none — sde_update reports how to configure). */
   sdeUpdateSource?: import('./sde/update.ts').SdeUpdateSource
+  /** How long the settings card's EVE login waits for the browser redirect (default 180 s). */
+  oauthWaitSeconds?: number
 }
 
 export function apply(ctx: Context, config: EsiaPluginConfig = {}): void {
@@ -127,6 +130,16 @@ export function apply(ctx: Context, config: EsiaPluginConfig = {}): void {
     return sdeRunner.runUpdate(url, (status) => { last = status }, signal as AbortSignal | undefined)
       .then(() => last as unknown)
   }
+  // Account/market bridge: the OAuth card binds the `dsh-esi-account`
+  // namespace; the bridge also tracks the default market region the market
+  // tools default to.
+  const accountBridge = new AccountBridge({
+    auth,
+    sde,
+    defaultLanguage: config.sdeLanguage,
+    oauthWaitMs: (config.oauthWaitSeconds ?? 180) * 1000,
+  })
+  accountBridge.attach(ctx)
 
   ctx.systemPrompt.section({ name: ESI_GUIDE_SECTION_NAME, order: 116, text: ESI_GUIDE })
 
@@ -142,7 +155,7 @@ export function apply(ctx: Context, config: EsiaPluginConfig = {}): void {
   // frequently repeated patterns (see the manufacturing session analysis) —
   // both get dedicated first-class tools instead of raw multi-call workflows.
   ctx.tools.register(createItemLookupTool(sde))
-  ctx.tools.register(createMarketPricesTool(client, sde))
+  ctx.tools.register(createMarketPricesTool(client, sde, { defaultRegionId: () => accountBridge.defaultRegionId() }))
   ctx.tools.register(createAuthorizeTool(auth))
   ctx.tools.register(createAccountsTool(auth))
   ctx.tools.register(createDeauthorizeTool(auth))

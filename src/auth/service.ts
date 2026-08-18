@@ -100,11 +100,14 @@ export class EsiaAuthService {
   /**
    * Run one authorization flow: returns the login URL immediately and awaits
    * the browser redirect. `waitMs` bounds the wait; `signal` aborts it.
+   * `onFlowStart` overrides the constructor-level callback for this call
+   * (the settings card publishes the URL to the browser this way).
    */
   async authorize(
     scopes: readonly string[],
     waitMs: number,
     signal?: EsiaAbortSignal,
+    onFlowStart?: (url: string) => void,
   ): Promise<AuthorizeResult> {
     const validated = this.validateScopes(scopes)
     const server = this.serverProfile
@@ -123,7 +126,7 @@ export class EsiaAuthService {
       scopes: validated,
       fetchImpl: this.fetchImpl,
     })
-    this.onFlowStart?.(flow.url)
+    ;(onFlowStart ?? this.onFlowStart)?.(flow.url)
     try {
       const outcome = await waitWithDeadline(flow.result, waitMs, signal)
       const verified = await verifyCharacter(server.loginBase, outcome.accessToken, this.fetchImpl, signal)

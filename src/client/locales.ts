@@ -3,6 +3,24 @@
  * @module @dsh-esi/plugin-esi/client
  */
 
+export type EveAccountLocaleKey =
+  | 'accountTitle'
+  | 'accountDescription'
+  | 'charactersLabel'
+  | 'noCharacters'
+  | 'scopesCount'
+  | 'expired'
+  | 'deauth'
+  | 'deauthAll'
+  | 'login'
+  | 'loginBusy'
+  | 'openLoginUrl'
+  | 'defaultRegionLabel'
+  | 'defaultRegionHint'
+  | 'noRegion'
+  | 'expand'
+  | 'collapse'
+
 export type SdeCardLocaleKey =
   | 'title'
   | 'description'
@@ -29,6 +47,25 @@ export type SdeCardLocaleKey =
   | 'expand'
   | 'collapse'
 
+export const zhAccount: Record<EveAccountLocaleKey, string> = {
+  accountTitle: 'EVE 账号与市场',
+  accountDescription: 'EVE SSO 登录授权，以及市场工具使用的默认星域',
+  charactersLabel: '已授权角色',
+  noCharacters: '未授权任何角色',
+  scopesCount: '权限 {n}',
+  expired: '（已过期）',
+  deauth: '撤销',
+  deauthAll: '撤销全部',
+  login: '登录 EVE',
+  loginBusy: '登录中…',
+  openLoginUrl: '打开登录页',
+  defaultRegionLabel: '默认市场星域',
+  defaultRegionHint: '未设置时市场工具默认使用吉他（The Forge）；选择后立即生效。',
+  noRegion: '未设置（默认吉他）',
+  expand: '展开',
+  collapse: '收起',
+}
+
 export const zh: Record<SdeCardLocaleKey, string> = {
   title: 'SDE 更新',
   description: '从下载地址更新 EVE 静态数据（SDE）；支持任意 http(s) 地址，压缩包需包含 manifest.json 与各表 .jsonl',
@@ -54,6 +91,25 @@ export const zh: Record<SdeCardLocaleKey, string> = {
   officialDataLink: '官方静态数据下载页（developers.eveonline.com/static-data）',
   expand: '展开',
   collapse: '收起',
+}
+
+export const enAccount: Record<EveAccountLocaleKey, string> = {
+  accountTitle: 'EVE Account & Market',
+  accountDescription: 'EVE SSO login and the default market region for market tools',
+  charactersLabel: 'Authorized characters',
+  noCharacters: 'No authorized characters',
+  scopesCount: 'scopes {n}',
+  expired: ' (expired)',
+  deauth: 'Revoke',
+  deauthAll: 'Revoke all',
+  login: 'Log in with EVE',
+  loginBusy: 'Logging in…',
+  openLoginUrl: 'Open login page',
+  defaultRegionLabel: 'Default market region',
+  defaultRegionHint: 'Market tools default to Jita (The Forge) when unset; takes effect immediately.',
+  noRegion: 'Unset (default Jita)',
+  expand: 'Expand',
+  collapse: 'Collapse',
 }
 
 export const en: Record<SdeCardLocaleKey, string> = {
@@ -87,5 +143,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
     /** SDE-update settings card copy (browser half of dsh-esi). */
     'dsh-esi.sde-card': SdeCardLocaleKey
+    /** EVE account & market settings card copy. */
+    'dsh-esi.eve-account': EveAccountLocaleKey
   }
 }
