@@ -155,6 +155,14 @@ try {
   await dialog.getByText(/build 20260103/).first().waitFor({ timeout: 5000 })
   check('status shows new build', true)
 
+  // Status chip must use the official 17px line-height, not the unitless 17
+  // multiplier (which would make an 11px-font chip ~187px tall).
+  const chip = dialog.getByText('完成', { exact: true })
+  await chip.waitFor({ timeout: 5000 })
+  const chipLh = await chip.evaluate((el) => getComputedStyle(el).lineHeight)
+  const chipH = await chip.evaluate((el) => el.offsetHeight)
+  check('status chip line-height is 17px', chipLh === '17px', `${chipLh}, height ${chipH}px`)
+
   // C2) Primary button contrast + official link (regression: white-on-white).
   const updateBtn = dialog.getByRole('button', { name: '下载并更新', exact: true })
   const bg = await updateBtn.evaluate((el) => getComputedStyle(el).backgroundColor)

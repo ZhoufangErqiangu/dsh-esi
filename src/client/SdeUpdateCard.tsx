@@ -192,7 +192,10 @@ const badge: CSSProperties = {
   borderRadius: 999,
   padding: '1px 8px',
   fontSize: 11,
-  lineHeight: 17,
+  // '17px' explicitly: a numeric 17 would render as the unitless multiplier
+  // line-height: 17 (17× the 11px font = 187px), not 17px like the official
+  // .badge rule.
+  lineHeight: '17px',
   whiteSpace: 'nowrap',
   fontWeight: 500,
   background: 'var(--dsw-alias-bg-module-platform)',
