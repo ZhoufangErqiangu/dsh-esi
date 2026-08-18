@@ -67,12 +67,13 @@ node scripts/e2e-real.mjs         # 真实网络 e2e（国服公开端点，需�
 
 ```bash
 pnpm run build      # tsdown 构建 lib/（单文件 ESM：peers 外挂、fflate 内联、node: 内置外置）
-pnpm pack           # 本地打包检查 tarball 内容（files 白名单：lib/ + README + LICENSE + package.json）
+pnpm pack           # 本地打包检查 tarball 内容（files 白名单：lib/ + cordis.patch.yml + README + LICENSE + package.json）
 ```
 
+- 根 `package.json` 声明 `dsh.bundle.patch: ./cordis.patch.yml`：包是标准**组合包（bundle）**，`dsh plugin add` 会把插件行按包名插入 profile 层；浏览器半面由同一 manifest 的 `dsh.client` 声明自动发现（无需单独的行）。
 - `prepare` 钩子 = `tsdown`：git/path 方式安装时自动构建，`lib/` 不进 git（见 .gitignore）。
 - 引擎要求 `node >= 22.5`（SDE 查询依赖 `node:sqlite`）。
-- **发布形态**（当前为 git tag 内部发布）：`git tag -a v0.1.0` 打标签；`dsh plugin add` 可用 git 地址/本地路径安装。后续上 npm 需：`@dsh-esi` org 拥有者发布 `npm publish --access public`；peer 版本（`@deepseek-ai/cordis`、`@deepseek-ai/dsh-tools`）已改为真实 semver 范围。
+- **发布形态**：社区插件市场校验根 `package.json` 的 `dsh.bundle.patch`（本包已声明，见上）。内部使用可 `git tag -a v0.1.0` 打标签后 `dsh plugin add`（git 地址/本地路径/tarball 均可）；上 npm 需 `@dsh-esi` org 拥有者发布 `npm publish --access public`，tarball 内已含 `cordis.patch.yml`。peer 版本（`@deepseek-ai/cordis`、`@deepseek-ai/dsh-tools`）已改为真实 semver 范围。
 - **数据不进包**：`data/` 被 .gitignore 且不在 files 白名单；消费者装完需自行获取 SDE 数据（见上文「SDE 数据」：`sde_update` 传 `url` 指向 jsonl 镜像 zip，或手动放置 + `build-manifest.mjs`）。
 - 构建产物验收：`DSH_ESI_PATCH=<指向 lib/index.js 的 patch> node scripts/gui-probe.mjs`（真实 loader 挂载 lib 跑通全工具链）。
 

@@ -1,0 +1,17 @@
+# dsh-esi bundle patch — the profile layer applied when a profile lists this
+# bundle (dsh.profile.bundles). Declared by the root package.json's
+# dsh.bundle.patch field; the profile composer resolves it through the
+# manifest, never through code.
+#
+# The row is inserted by package name so Node's module resolution finds the
+# installed package's main entry (lib/index.js). The browser half needs no
+# separate row: the package's `dsh.client` declaration (platform "web") makes
+# the client-modules scan pick up exports["./client"] automatically once the
+# host row is mounted.
+#
+# The row carries no config — the plugin defaults (server 'cn', rate 15 rps,
+# <package>/data SDE root) apply. Users override in their own profile layer.
+
+- insert:
+    - id: dsh-esi
+      name: '@dsh-esi/plugin-esi'
