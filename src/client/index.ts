@@ -61,13 +61,13 @@ export function apply(ctx: ClientContext): void {
   ctx.slots.inject('settings.plugin.item', function* () {
     yield ctx.slots.register({
       name: 'settings.plugin.item',
-      key: SDE_NS,
-      inject: () => sdeController.inject(),
-    }, SdeUpdateCard)
-    yield ctx.slots.register({
-      name: 'settings.plugin.item',
       key: ACCOUNT_NS,
       inject: () => accountController.inject(),
     }, EveAccountCard)
+    yield ctx.slots.register({
+      name: 'settings.plugin.item',
+      key: SDE_NS,
+      inject: () => sdeController.inject(),
+    }, SdeUpdateCard)
   })
 }
