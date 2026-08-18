@@ -11,9 +11,13 @@ import type { SdeCardLocaleKey } from './locales.ts'
 /** Mirror of the host-side status shape (client cannot import host packages). */
 export interface SdeGuiStatusView {
   readonly phase: 'idle' | 'checking' | 'downloading' | 'extracting' | 'building' | 'installing' | 'done' | 'error' | string
+  /** Dictionary key of the status line; absent → render `message` raw. */
+  readonly messageKey?: string
+  /** Interpolation params for `messageKey`. */
+  readonly messageParams?: Readonly<Record<string, string | number>>
   readonly message: string
   readonly progress?: number
-  readonly error?: { readonly code: string; readonly message: string }
+  readonly error?: { readonly code: string; readonly message: string; readonly params?: Readonly<Record<string, string | number>> }
   readonly currentBuild?: number
   readonly previousBuild?: number
   readonly at: number
@@ -51,7 +55,7 @@ export interface SdeCardFace {
     }
   }
   /** Namespace-bound translate (bound at apply time; reads the active locale at call time). */
-  t: (key: SdeCardLocaleKey) => string
+  t: (key: SdeCardLocaleKey, params?: Record<string, unknown>) => string
   /** Arm an update with the given URL (one-shot trigger write). */
   runUpdate(url: string): void
   /** Arm a rollback (one-shot trigger write). */
@@ -70,7 +74,7 @@ export class SdeCardController {
    */
   constructor(
     private readonly scope: SettingsScope<SdeGuiSection>,
-    private readonly t: (key: SdeCardLocaleKey) => string,
+    private readonly t: (key: SdeCardLocaleKey, params?: Record<string, unknown>) => string,
   ) {
     this.state = this.project()
     this.scope.subscribe(() => {

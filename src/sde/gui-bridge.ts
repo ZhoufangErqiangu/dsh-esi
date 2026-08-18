@@ -44,11 +44,14 @@ export const SdeGuiSettingsSchema = z.object({
   }).required(false),
   sdeUpdateStatus: z.object({
     phase: z.string(),
+    messageKey: z.string().required(false),
+    messageParams: z.dict(z.union([z.string(), z.number()])).required(false),
     message: z.string(),
     progress: z.number().required(false),
     error: z.object({
       code: z.string(),
       message: z.string(),
+      params: z.dict(z.union([z.string(), z.number()])).required(false),
     }).required(false),
     currentBuild: z.number().required(false),
     previousBuild: z.number().required(false),

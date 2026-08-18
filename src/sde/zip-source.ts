@@ -35,19 +35,27 @@ import { unzipSync } from 'fflate'
 import type { EsiaAbortSignal } from '../esia-client.ts'
 import type { SdeManifest } from './types.ts'
 
-/** Typed failure of a URL-driven SDE update; `code` is stable, `message` is user-facing (zh). */
+/**
+ * Typed failure of a URL-driven SDE update. `code` is stable and doubles as
+ * the card's i18n key (the browser maps code → dictionary key and translates
+ * `params` into the localized template); `message` is the raw fallback text
+ * (zh) shown when the code is unknown to the client or outside the GUI.
+ */
 export class SdeZipError extends Error {
   readonly code: string
   /** HTTP status when the failure came from an HTTP response. */
   readonly status?: number
+  /** Interpolation params for the code-keyed translation (`{name}` placeholders). */
+  readonly params?: Readonly<Record<string, string | number>>
   /** Lower-level cause, when one exists (kept out of the user-facing message). */
   readonly cause?: unknown
 
-  constructor(code: string, message: string, options: { status?: number; cause?: unknown } = {}) {
+  constructor(code: string, message: string, options: { status?: number; params?: Record<string, string | number>; cause?: unknown } = {}) {
     super(message)
     this.name = 'SdeZipError'
     this.code = code
     this.status = options.status
+    this.params = options.params
     this.cause = options.cause
   }
 }
@@ -93,7 +101,7 @@ const BUILD_IN_FILENAME = /(?:^|\D)(\d{8})(?:\D|$)/
 /** A real HTTP error for a typed 4xx/5xx response. */
 export class HttpStatusError extends SdeZipError {
   constructor(status: number) {
-    super('HTTP_ERROR', `下载失败：服务器返回 HTTP ${status}`, { status })
+    super('HTTP_ERROR', `下载失败：服务器返回 HTTP ${status}`, { status, params: { status } })
   }
 }
 
@@ -107,25 +115,26 @@ export function validateSdeUrl(rawInput: string): URL {
     throw new SdeZipError('URL_EMPTY', '请输入下载地址')
   }
   if (raw.length > MAX_URL_LENGTH) {
-    throw new SdeZipError('URL_INVALID', `下载地址过长（超过 ${MAX_URL_LENGTH} 字符）`)
+    throw new SdeZipError('URL_TOO_LONG', `下载地址过长（超过 ${MAX_URL_LENGTH} 字符）`, { params: { max: MAX_URL_LENGTH } })
   }
   if (/[\u0000-\u001f]/.test(raw)) {
-    throw new SdeZipError('URL_INVALID', '下载地址包含非法控制字符')
+    throw new SdeZipError('URL_CONTROL_CHAR', '下载地址包含非法控制字符')
   }
   let url: URL
   try {
     url = new URL(raw)
   } catch {
-    throw new SdeZipError('URL_INVALID', `“${truncate(raw, 40)}”不是有效的 URL；请输入完整的 http(s) 下载地址`)
+    throw new SdeZipError('URL_MALFORMED', `“${truncate(raw, 40)}”不是有效的 URL；请输入完整的 http(s) 下载地址`, { params: { url: truncate(raw, 40) } })
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     throw new SdeZipError(
-      'URL_INVALID',
+      'URL_SCHEME',
       `仅支持 http/https 下载地址（收到 ${url.protocol.replace(':', '')}://）；请使用以 https:// 开头的完整地址`,
+      { params: { scheme: url.protocol.replace(':', '') } },
     )
   }
   if (url.hostname.length === 0) {
-    throw new SdeZipError('URL_INVALID', '下载地址缺少主机名')
+    throw new SdeZipError('URL_NO_HOST', '下载地址缺少主机名')
   }
   return url
 }
@@ -261,7 +270,7 @@ export class ZipSdeSource {
         const lengthHeader = response.headers.get('content-length')
         const total = lengthHeader === null ? undefined : Number(lengthHeader)
         if (total !== undefined && Number.isFinite(total) && total > maxBytes) {
-          throw new SdeZipError('TOO_LARGE', `文件过大（${formatBytes(total)}，上限 ${formatBytes(maxBytes)}）`)
+          throw new SdeZipError('TOO_LARGE', `文件过大（${formatBytes(total)}，上限 ${formatBytes(maxBytes)}）`, { params: { size: formatBytes(total), max: formatBytes(maxBytes) } })
         }
         if (response.body === null) {
           throw new SdeZipError('DOWNLOAD_EMPTY', '下载响应没有内容')
@@ -280,7 +289,7 @@ export class ZipSdeSource {
             received += value.byteLength
             if (received > maxBytes) {
               controller.abort()
-              throw new SdeZipError('TOO_LARGE', `文件过大（超过 ${formatBytes(maxBytes)}）`)
+              throw new SdeZipError('TOO_LARGE_STREAM', `文件过大（超过 ${formatBytes(maxBytes)}）`, { params: { max: formatBytes(maxBytes) } })
             }
             chunks.push(value)
             report?.({
@@ -340,7 +349,7 @@ function createStagingDir(dataRoot: string): string {
 function extractZip(bytes: Uint8Array, dir: string, maxExtractedBytes: number): string[] {
   if (bytes.byteLength < 4 || bytes[0] !== ZIP_MAGIC[0] || bytes[1] !== ZIP_MAGIC[1]
     || bytes[2] !== ZIP_MAGIC[2] || bytes[3] !== ZIP_MAGIC[3]) {
-    throw new SdeZipError('ZIP_CORRUPT', '下载的文件不是有效的 zip 压缩包（文件头不正确）')
+    throw new SdeZipError('ZIP_BAD_MAGIC', '下载的文件不是有效的 zip 压缩包（文件头不正确）')
   }
   let entries: Record<string, Uint8Array>
   try {
@@ -357,7 +366,7 @@ function extractZip(bytes: Uint8Array, dir: string, maxExtractedBytes: number): 
     throw new SdeZipError('ZIP_EMPTY', '压缩包是空的')
   }
   if (names.length > MAX_ENTRY_COUNT) {
-    throw new SdeZipError('ZIP_BOMB', `压缩包条目过多（${names.length}，上限 ${MAX_ENTRY_COUNT}）`)
+    throw new SdeZipError('ZIP_BOMB', `压缩包条目过多（${names.length}，上限 ${MAX_ENTRY_COUNT}）`, { params: { count: names.length, max: MAX_ENTRY_COUNT } })
   }
 
   let totalExtracted = 0
@@ -367,7 +376,7 @@ function extractZip(bytes: Uint8Array, dir: string, maxExtractedBytes: number): 
     if (content === undefined) continue
     totalExtracted += content.byteLength
     if (totalExtracted > maxExtractedBytes) {
-      throw new SdeZipError('ZIP_BOMB', `解压后内容过大（超过 ${formatBytes(maxExtractedBytes)}）`)
+      throw new SdeZipError('ZIP_BOMB_SIZE', `解压后内容过大（超过 ${formatBytes(maxExtractedBytes)}）`, { params: { max: formatBytes(maxExtractedBytes) } })
     }
     const target = join(dir, ...name.split('/'))
     mkdirSync(dirname(target), { recursive: true })
@@ -382,14 +391,14 @@ function extractZip(bytes: Uint8Array, dir: string, maxExtractedBytes: number): 
 
 /** Reject zip-slip / absolute / drive-letter entry paths; returns the normalized safe name. */
 function safeEntryPath(rawName: string): string {
-  if (rawName.length === 0) throw new SdeZipError('PATH_UNSAFE', '压缩包包含空路径条目')
+  if (rawName.length === 0) throw new SdeZipError('PATH_EMPTY', '压缩包包含空路径条目')
   const name = rawName.replaceAll('\\', '/')
   if (name.startsWith('/') || /^[a-zA-Z]:/.test(name) || name.includes('\0')) {
-    throw new SdeZipError('PATH_UNSAFE', `压缩包包含不安全的路径：${truncate(rawName, 40)}`)
+    throw new SdeZipError('PATH_UNSAFE', `压缩包包含不安全的路径：${truncate(rawName, 40)}`, { params: { name: truncate(rawName, 40) } })
   }
   const segments = name.split('/')
   if (segments.some((segment) => segment === '..')) {
-    throw new SdeZipError('PATH_UNSAFE', `压缩包包含越界路径（zip-slip）：${truncate(rawName, 40)}`)
+    throw new SdeZipError('PATH_TRAVERSAL', `压缩包包含越界路径（zip-slip）：${truncate(rawName, 40)}`, { params: { name: truncate(rawName, 40) } })
   }
   return name
 }
@@ -398,7 +407,7 @@ function safeEntryPath(rawName: string): string {
 function validatePayload(versionDir: string, files: readonly string[]): SdeManifest {
   if (!files.includes('manifest.json')) {
     throw new SdeZipError(
-      'PAYLOAD_INVALID',
+      'PAYLOAD_NO_MANIFEST',
       '压缩包内没有 manifest.json；这不是 SDE 镜像包（镜像 zip 应包含 manifest.json 与各表 .jsonl）',
     )
   }
@@ -406,30 +415,32 @@ function validatePayload(versionDir: string, files: readonly string[]): SdeManif
   try {
     manifest = JSON.parse(readFileSync(join(versionDir, 'manifest.json'), 'utf8'))
   } catch {
-    throw new SdeZipError('PAYLOAD_INVALID', '压缩包内的 manifest.json 无法解析（不是有效的 JSON）')
+    throw new SdeZipError('PAYLOAD_JSON_INVALID', '压缩包内的 manifest.json 无法解析（不是有效的 JSON）')
   }
   if (manifest === null || typeof manifest !== 'object' || Array.isArray(manifest)) {
-    throw new SdeZipError('PAYLOAD_INVALID', '压缩包内的 manifest.json 结构无效')
+    throw new SdeZipError('PAYLOAD_STRUCT_INVALID', '压缩包内的 manifest.json 结构无效')
   }
   const record = manifest as Record<string, unknown>
   const buildNumber = record.buildNumber
   if (typeof buildNumber !== 'number' || !Number.isInteger(buildNumber) || buildNumber <= 0) {
-    throw new SdeZipError('PAYLOAD_INVALID', 'manifest.json 缺少有效的 buildNumber')
+    throw new SdeZipError('PAYLOAD_NO_BUILD', 'manifest.json 缺少有效的 buildNumber')
   }
   const tables = record.tables
   if (tables === null || typeof tables !== 'object' || Array.isArray(tables)) {
-    throw new SdeZipError('PAYLOAD_INVALID', 'manifest.json 缺少 tables 表清单')
+    throw new SdeZipError('PAYLOAD_NO_TABLES', 'manifest.json 缺少 tables 表清单')
   }
   const tableNames = Object.keys(tables as Record<string, unknown>)
   if (tableNames.length === 0) {
-    throw new SdeZipError('PAYLOAD_INVALID', 'manifest.json 的 tables 是空的（没有数据表）')
+    throw new SdeZipError('PAYLOAD_EMPTY_TABLES', 'manifest.json 的 tables 是空的（没有数据表）')
   }
   const missing = tableNames.filter((table) => !files.includes(`${table}.jsonl`))
   if (missing.length > 0) {
+    const listed = missing.slice(0, 3).map((t) => `${t}.jsonl`).join('、')
+    const many = missing.length > 3
     throw new SdeZipError(
-      'PAYLOAD_INVALID',
-      `压缩包缺少数据表文件：${truncate(missing.slice(0, 3).map((t) => `${t}.jsonl`).join('、'), 80)}`
-        + (missing.length > 3 ? ` 等 ${missing.length} 个` : ''),
+      many ? 'PAYLOAD_MISSING_TABLES_MANY' : 'PAYLOAD_MISSING_TABLES',
+      `压缩包缺少数据表文件：${truncate(listed, 80)}${many ? ` 等 ${missing.length} 个` : ''}`,
+      { params: many ? { tables: truncate(listed, 80), count: missing.length } : { tables: truncate(listed, 80) } },
     )
   }
   return manifest as SdeManifest
@@ -461,7 +472,7 @@ function classifyTimeout(error: unknown): SdeZipError {
 
 function classifyNetworkError(error: unknown, fallback: string): SdeZipError {
   const message = error instanceof Error && error.message.length > 0 ? error.message : fallback
-  return new SdeZipError('NETWORK', `网络错误：${truncate(message, 120)}`, { cause: error })
+  return new SdeZipError('NETWORK', `网络错误：${truncate(message, 120)}`, { cause: error, params: { detail: truncate(message, 120) } })
 }
 
 function mapFsError(error: unknown, fallback: string): SdeZipError {
@@ -469,7 +480,7 @@ function mapFsError(error: unknown, fallback: string): SdeZipError {
   if (code === 'ENOSPC') return new SdeZipError('DISK_FULL', '磁盘空间不足，无法写入数据')
   if (code === 'EACCES' || code === 'EPERM') return new SdeZipError('DISK_DENIED', '没有写入权限，无法保存数据')
   const message = error instanceof Error && error.message.length > 0 ? error.message : fallback
-  return new SdeZipError('DISK_ERROR', `写入数据失败：${truncate(message, 120)}`, { cause: error })
+  return new SdeZipError('DISK_ERROR', `写入数据失败：${truncate(message, 120)}`, { cause: error, params: { detail: truncate(message, 120) } })
 }
 
 function backoff(attempt: number): Promise<void> {

@@ -26,6 +26,10 @@ export interface AccountCharacterView {
 /** Mirror of the host-side OAuth status. */
 export interface OAuthStatusView {
   readonly phase: string
+  /** Dictionary key of the status line; absent → render `message` raw. */
+  readonly messageKey?: string
+  /** Interpolation params for `messageKey`. */
+  readonly messageParams?: Readonly<Record<string, string | number>>
   readonly message: string
   readonly loginUrl?: string
   readonly error?: { readonly code: string; readonly message: string }
@@ -67,7 +71,7 @@ export interface EveAccountCardFace {
     }
   }
   /** Namespace-bound translate (bound at apply time). */
-  t: (key: EveAccountLocaleKey) => string
+  t: (key: EveAccountLocaleKey, params?: Record<string, unknown>) => string
   /** Arm an EVE SSO login (one-shot trigger write). */
   login(): void
   /** Arm a deauthorize (one-shot trigger write; omit characterId to revoke all). */
@@ -84,7 +88,7 @@ export class EveAccountCardController {
 
   constructor(
     private readonly scope: SettingsScope<EveAccountSection>,
-    private readonly t: (key: EveAccountLocaleKey) => string,
+    private readonly t: (key: EveAccountLocaleKey, params?: Record<string, unknown>) => string,
   ) {
     this.state = this.project()
     this.scope.subscribe(() => {

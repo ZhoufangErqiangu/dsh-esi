@@ -82,7 +82,7 @@ test('sde_update url mode: invalid URL and missing source surface typed errors',
 
     const badUrl = await tool.execute({ confirm: false, url: 'not a url' }, { signal: undefined })
     assert.equal(badUrl.ok, false)
-    assert.equal(badUrl.error.code, 'URL_INVALID')
+    assert.equal(badUrl.error.code, 'URL_MALFORMED')
 
     const noUrl = await tool.execute({ confirm: true }, { signal: undefined })
     assert.equal(noUrl.ok, false)

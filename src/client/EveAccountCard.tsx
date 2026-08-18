@@ -12,6 +12,7 @@ import {
   inputBase, primaryButton, secondaryButton,
 } from './card-chrome.tsx'
 import type { EveAccountCardFace } from './eve-account-card-controller.ts'
+import type { EveAccountLocaleKey } from './locales.ts'
 
 /** Dictionary namespace owned by this card. */
 export const ACCOUNT_LOCALE_NS = 'dsh-esi.eve-account'
@@ -178,7 +179,13 @@ export function EveAccountCard(props: EveAccountCardProps) {
             </a>
           )}
         </div>
-        {status !== undefined && <p style={statusMessage}>{status.message}</p>}
+        {status !== undefined && (
+          <p style={statusMessage}>
+            {status.messageKey !== undefined
+              ? t(status.messageKey as EveAccountLocaleKey, status.messageParams)
+              : status.message}
+          </p>
+        )}
         {status?.error !== undefined && status.error.message !== undefined && (
           <p style={invalidText} role="alert">{status.error.message}</p>
         )}

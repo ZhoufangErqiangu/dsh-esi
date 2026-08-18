@@ -44,6 +44,11 @@ export interface AccountSettings {
   readonly oauthDeauthRequest?: { readonly nonce: number; readonly characterId?: number }
   readonly oauthStatus?: {
     readonly phase: string
+    /** Dictionary key of the status line; absent → the card renders `message` raw. */
+    readonly messageKey?: string
+    /** Interpolation params for `messageKey`. */
+    readonly messageParams?: Readonly<Record<string, string | number>>
+    /** Raw fallback text (zh) kept for logs / non-GUI consumers. */
     readonly message: string
     readonly loginUrl?: string
     readonly error?: { readonly code: string; readonly message: string }
@@ -65,6 +70,8 @@ export const AccountSettingsSchema = z.object({
   }).required(false),
   oauthStatus: z.object({
     phase: z.string(),
+    messageKey: z.string().required(false),
+    messageParams: z.dict(z.union([z.string(), z.number()])).required(false),
     message: z.string(),
     loginUrl: z.string().required(false),
     error: z.object({
@@ -158,12 +165,18 @@ export class AccountBridge {
         })
       }
 
-      const publishStatus = (phase: string, message: string, loginUrl?: string): void => {
+      const publishStatus = (
+        phase: string,
+        message: string,
+        extra: { messageKey?: string; messageParams?: Record<string, string | number>; loginUrl?: string } = {},
+      ): void => {
         publish({
           oauthStatus: {
             phase,
             message,
-            ...(loginUrl !== undefined ? { loginUrl } : {}),
+            ...(extra.messageKey !== undefined ? { messageKey: extra.messageKey } : {}),
+            ...(extra.messageParams !== undefined ? { messageParams: extra.messageParams } : {}),
+            ...(extra.loginUrl !== undefined ? { loginUrl: extra.loginUrl } : {}),
             at: Date.now(),
           },
         })
@@ -174,7 +187,11 @@ export class AccountBridge {
 
       // Initial snapshot: characters + idle status.
       publishCharacters()
-      publishStatus('idle', this.characters().length === 0 ? '未授权任何角色' : '已授权角色可正常使用')
+      publishStatus(
+        'idle',
+        this.characters().length === 0 ? '未授权任何角色' : '已授权角色可正常使用',
+        { messageKey: this.characters().length === 0 ? 'status.idle.noCharacters' : 'status.idle.authorized' },
+      )
 
       let lastOauthNonce = 0
       let lastDeauthNonce = 0
@@ -206,12 +223,12 @@ export class AccountBridge {
 
   private runLogin(
     settingsCtx: Context,
-    publishStatus: (phase: string, message: string, loginUrl?: string) => void,
+    publishStatus: (phase: string, message: string, extra?: { messageKey?: string; messageParams?: Record<string, string | number>; loginUrl?: string }) => void,
     publishCharacters: () => void,
   ): Promise<void> {
     this.oauthRunning = true
     this.lastLoginUrl = undefined
-    publishStatus('starting', '正在启动 EVE 登录…')
+    publishStatus('starting', '正在启动 EVE 登录…', { messageKey: 'status.starting' })
     const waitMs = this.options.oauthWaitMs ?? 180_000
     return this.auth.authorize(
       this.cardScopes(),
@@ -219,14 +236,14 @@ export class AccountBridge {
       undefined,
       (url) => {
         this.lastLoginUrl = url
-        publishStatus('waiting', '请在浏览器中打开链接完成 EVE 登录', url)
+        publishStatus('waiting', '请在浏览器中打开链接完成 EVE 登录', { messageKey: 'status.waiting', loginUrl: url })
       },
     )
       .then((result) => {
-        publishStatus('done', `已授权：${result.characterName}`)
+        publishStatus('done', `已授权：${result.characterName}`, { messageKey: 'status.authorized', messageParams: { name: result.characterName } })
       })
       .catch((error: unknown) => {
-        publishStatus('error', errorMessage(error), this.lastLoginUrl)
+        publishStatus('error', errorMessage(error), { loginUrl: this.lastLoginUrl })
       })
       .finally(() => {
         this.oauthRunning = false

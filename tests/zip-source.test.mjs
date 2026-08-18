@@ -79,8 +79,9 @@ function serveZip(zipBytes, headers = {}) {
 // ---- validateSdeUrl ---------------------------------------------------------
 
 test('validateSdeUrl rejects non-http(s) and malformed inputs', () => {
+  const urlCodes = new Set(['URL_EMPTY', 'URL_TOO_LONG', 'URL_CONTROL_CHAR', 'URL_MALFORMED', 'URL_SCHEME', 'URL_NO_HOST'])
   for (const bad of ['', '   ', '/tmp/x.zip', 'x.zip', 'relative/path', 'file:///etc/passwd', 'ftp://host/x.zip', 'http://', 'http://\u0000', 'https://a b.com/x.zip', 'not a url at all']) {
-    assert.throws(() => validateSdeUrl(bad), (error) => error instanceof SdeZipError && error.code === 'URL_INVALID' || error.code === 'URL_EMPTY', `expected ${JSON.stringify(bad)} to be rejected`)
+    assert.throws(() => validateSdeUrl(bad), (error) => error instanceof SdeZipError && urlCodes.has(error.code), `expected ${JSON.stringify(bad)} to be rejected`)
   }
   assert.equal(validateSdeUrl(' https://example.com/sde/sde-20260731.zip ').href, 'https://example.com/sde/sde-20260731.zip')
   assert.equal(validateSdeUrl('http://127.0.0.1:9999/a.zip').protocol, 'http:')
@@ -116,7 +117,7 @@ test('rejects a corrupt archive (bad magic)', async () => {
   const dataRoot = makeDataRoot()
   try {
     const source = new ZipSdeSource(url(port))
-    await assert.rejects(source.downloadToStaging(dataRoot), (e) => e instanceof SdeZipError && e.code === 'ZIP_CORRUPT')
+    await assert.rejects(source.downloadToStaging(dataRoot), (e) => e instanceof SdeZipError && e.code === 'ZIP_BAD_MAGIC')
     assert.equal(readdirCount(dataRoot), 0, 'staging must be cleaned up')
   } finally {
     server.close()
@@ -144,7 +145,7 @@ test('rejects zip-slip entry paths', async () => {
   const { server, port } = await startServer(serveZip(zip))
   const dataRoot = makeDataRoot()
   try {
-    await assert.rejects(new ZipSdeSource(url(port)).downloadToStaging(dataRoot), (e) => e instanceof SdeZipError && e.code === 'PATH_UNSAFE')
+    await assert.rejects(new ZipSdeSource(url(port)).downloadToStaging(dataRoot), (e) => e instanceof SdeZipError && e.code === 'PATH_TRAVERSAL')
   } finally {
     server.close()
     rmSync(dataRoot, { recursive: true, force: true })
@@ -156,7 +157,7 @@ test('rejects an archive without manifest.json', async () => {
   const { server, port } = await startServer(serveZip(zip))
   const dataRoot = makeDataRoot()
   try {
-    await assert.rejects(new ZipSdeSource(url(port)).downloadToStaging(dataRoot), (e) => e instanceof SdeZipError && e.code === 'PAYLOAD_INVALID' && e.message.includes('manifest.json'))
+    await assert.rejects(new ZipSdeSource(url(port)).downloadToStaging(dataRoot), (e) => e instanceof SdeZipError && e.code === 'PAYLOAD_NO_MANIFEST' && e.message.includes('manifest.json'))
   } finally {
     server.close()
     rmSync(dataRoot, { recursive: true, force: true })
@@ -170,7 +171,7 @@ test('rejects a manifest listing a missing table file', async () => {
   const { server, port } = await startServer(serveZip(zip))
   const dataRoot = makeDataRoot()
   try {
-    await assert.rejects(new ZipSdeSource(url(port)).downloadToStaging(dataRoot), (e) => e instanceof SdeZipError && e.code === 'PAYLOAD_INVALID' && e.message.includes('missing.jsonl'))
+    await assert.rejects(new ZipSdeSource(url(port)).downloadToStaging(dataRoot), (e) => e instanceof SdeZipError && e.code === 'PAYLOAD_MISSING_TABLES' && e.message.includes('missing.jsonl'))
   } finally {
     server.close()
     rmSync(dataRoot, { recursive: true, force: true })
@@ -182,7 +183,7 @@ test('rejects an invalid buildNumber', async () => {
   const { server, port } = await startServer(serveZip(zip))
   const dataRoot = makeDataRoot()
   try {
-    await assert.rejects(new ZipSdeSource(url(port)).downloadToStaging(dataRoot), (e) => e instanceof SdeZipError && e.code === 'PAYLOAD_INVALID')
+    await assert.rejects(new ZipSdeSource(url(port)).downloadToStaging(dataRoot), (e) => e instanceof SdeZipError && e.code === 'PAYLOAD_NO_BUILD')
   } finally {
     server.close()
     rmSync(dataRoot, { recursive: true, force: true })
@@ -286,7 +287,18 @@ test('GuiRunner: full update + query + rollback', async () => {
     assert.equal(phases[phases.length - 1], 'done')
     const done = statuses[statuses.length - 1]
     assert.equal(done.currentBuild, 20260101)
+    assert.equal(done.messageKey, 'status.updated')
+    assert.deepEqual(done.messageParams, { build: 20260101 })
     assert.equal(runner.status().phase, 'done')
+    // Structured status lines carry a key; the raw zh message stays as fallback.
+    const downloading = statuses.find((s) => s.phase === 'downloading')
+    assert.ok(downloading.messageKey === 'status.downloading' || downloading.messageKey === 'status.downloadingPercent')
+    assert.ok(typeof downloading.messageParams.size === 'string')
+    assert.ok(downloading.message.length > 0)
+    for (const s of statuses) {
+      if (s.phase === 'error') continue
+      assert.ok(typeof s.messageKey === 'string', `phase ${s.phase} should carry a messageKey`)
+    }
 
     // The active version serves queries through the sqlite store.
     const sde = new SdeService({ dataRoot })
@@ -300,6 +312,7 @@ test('GuiRunner: full update + query + rollback', async () => {
     await runner.rollback((s) => rollbackStatuses.push(s))
     assert.equal(rollbackStatuses[rollbackStatuses.length - 1].phase, 'error')
     assert.equal(rollbackStatuses[rollbackStatuses.length - 1].error.code, 'NO_ROLLBACK')
+    assert.equal(rollbackStatuses[rollbackStatuses.length - 1].error.params, undefined)
   } finally {
     server.close()
     rmSync(dataRoot, { recursive: true, force: true })
@@ -359,7 +372,8 @@ test('GuiRunner: bad URL and bad payload surface typed error statuses', async ()
     const badUrl = []
     await runner.runUpdate('not a url at all', (s) => badUrl.push(s))
     assert.equal(badUrl[badUrl.length - 1].phase, 'error')
-    assert.equal(badUrl[badUrl.length - 1].error.code, 'URL_INVALID')
+    assert.equal(badUrl[badUrl.length - 1].error.code, 'URL_MALFORMED')
+    assert.deepEqual(badUrl[badUrl.length - 1].error.params, { url: 'not a url at all' })
 
     const zip = zipSync({ 'types.jsonl': strToU8('[]') })
     const { server, port } = await startServer(serveZip(zip))
@@ -367,7 +381,7 @@ test('GuiRunner: bad URL and bad payload surface typed error statuses', async ()
       const badPayload = []
       await runner.runUpdate(url(port), (s) => badPayload.push(s))
       assert.equal(badPayload[badPayload.length - 1].phase, 'error')
-      assert.equal(badPayload[badPayload.length - 1].error.code, 'PAYLOAD_INVALID')
+      assert.equal(badPayload[badPayload.length - 1].error.code, 'PAYLOAD_NO_MANIFEST')
     } finally {
       server.close()
     }

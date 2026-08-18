@@ -35,6 +35,60 @@ const PHASE_KEYS: Record<string, SdeCardLocaleKey> = {
   error: 'error',
 }
 
+/** Host error code → dictionary key (fall back to the raw message for unknown codes). */
+const ERROR_KEYS: Record<string, SdeCardLocaleKey> = {
+  BUSY: 'err.busy',
+  NO_ROLLBACK: 'err.noRollback',
+  INTERNAL: 'err.internal',
+  URL_EMPTY: 'err.urlEmpty',
+  URL_TOO_LONG: 'err.urlTooLong',
+  URL_CONTROL_CHAR: 'err.urlControlChar',
+  URL_MALFORMED: 'err.urlMalformed',
+  URL_SCHEME: 'err.urlScheme',
+  URL_NO_HOST: 'err.urlNoHost',
+  HTTP_ERROR: 'err.httpError',
+  HTTP_404: 'err.http404',
+  HTTP_403: 'err.http403',
+  NETWORK: 'err.network',
+  TIMEOUT: 'err.timeout',
+  TOO_LARGE: 'err.tooLarge',
+  TOO_LARGE_STREAM: 'err.tooLargeStream',
+  DOWNLOAD_EMPTY: 'err.downloadEmpty',
+  DOWNLOAD_ABORTED: 'err.downloadAborted',
+  ZIP_BAD_MAGIC: 'err.zipBadMagic',
+  ZIP_CORRUPT: 'err.zipCorrupt',
+  ZIP_EMPTY: 'err.zipEmpty',
+  ZIP_BOMB: 'err.zipBomb',
+  ZIP_BOMB_SIZE: 'err.zipBombSize',
+  PATH_EMPTY: 'err.pathEmpty',
+  PATH_UNSAFE: 'err.pathUnsafe',
+  PATH_TRAVERSAL: 'err.pathTraversal',
+  PAYLOAD_NO_MANIFEST: 'err.payloadNoManifest',
+  PAYLOAD_JSON_INVALID: 'err.payloadJsonInvalid',
+  PAYLOAD_STRUCT_INVALID: 'err.payloadStructInvalid',
+  PAYLOAD_NO_BUILD: 'err.payloadNoBuild',
+  PAYLOAD_NO_TABLES: 'err.payloadNoTables',
+  PAYLOAD_EMPTY_TABLES: 'err.payloadEmptyTables',
+  PAYLOAD_MISSING_TABLES: 'err.payloadMissingTables',
+  PAYLOAD_MISSING_TABLES_MANY: 'err.payloadMissingTablesMany',
+  DISK_FULL: 'err.diskFull',
+  DISK_DENIED: 'err.diskDenied',
+  DISK_ERROR: 'err.diskError',
+}
+
+/** The localized status-line text: keyed (translated) when the host sent a key, raw otherwise. */
+function statusLine(t: (key: SdeCardLocaleKey, params?: Record<string, unknown>) => string, status: SdeGuiStatusView): string {
+  return status.messageKey !== undefined
+    ? t(status.messageKey as SdeCardLocaleKey, status.messageParams)
+    : status.message
+}
+
+/** The localized error text: code-keyed (translated) when known, raw otherwise. */
+function errorLine(t: (key: SdeCardLocaleKey, params?: Record<string, unknown>) => string, error: NonNullable<SdeGuiStatusView['error']>): string {
+  const key = ERROR_KEYS[error.code]
+  return key !== undefined ? t(key, error.params) : error.message
+}
+
 // ---- status area (official badge/hint language) ------------------------------
 
 const badge: CSSProperties = {
@@ -168,12 +222,15 @@ export function SdeUpdateCard(props: SdeUpdateCardProps) {
         />
       </Field>
 
-      {status !== undefined && (
+      {/* Status area: the badge+message row shows progress phases; error phases
+          render only the alert line below (the host sends the error as a
+          code-keyed payload, translated via ERROR_KEYS). */}
+      {status !== undefined && status.phase !== 'error' && (
         <div style={statusRow}>
           <span style={badge}>
             {phaseKey === undefined ? status.phase : t(phaseKey)}
           </span>
-          <p style={statusMessage}>{status.message}</p>
+          <p style={statusMessage}>{statusLine(t, status)}</p>
           {status.progress !== undefined && (
             <div
               style={track}
@@ -192,7 +249,7 @@ export function SdeUpdateCard(props: SdeUpdateCardProps) {
         </div>
       )}
       {status?.error !== undefined && status.error.message !== undefined && (
-        <p style={errorText} role="alert">{status.error.message}</p>
+        <p style={errorText} role="alert">{errorLine(t, status.error)}</p>
       )}
 
       <div style={footer}>
