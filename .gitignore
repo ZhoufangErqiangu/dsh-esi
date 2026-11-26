@@ -3,6 +3,9 @@ lib/
 *.tsbuildinfo
 *.log
 
+# Local tool state (pnpm store/cache, temporary DSH homes, probe output)
+.tmp/
+
 # SDE static data is downloaded/managed by sde_update, not versioned
 data/
 .gui-home/

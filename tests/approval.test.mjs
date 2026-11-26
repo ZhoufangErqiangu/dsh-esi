@@ -10,10 +10,7 @@ import { createServer } from 'node:http'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Context } from '@deepseek-ai/cordis'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime from '@deepseek-ai/dsh-tools'
-import { createScope } from '@deepseek-ai/dsh-scope'
+import { setupRuntime, createAgent, runTool } from './helpers/runtime.mjs'
 import { apply } from '../src/index.ts'
 import { ENDPOINTS, SERVERS } from '../src/generated/catalog.ts'
 
@@ -31,20 +28,8 @@ function startMock() {
   })
 }
 
-function execStub(name, args, agent) {
-  return {
-    callId: `c-${Math.random().toString(36).slice(2)}`,
-    name,
-    arguments: args,
-    signal: new AbortController().signal,
-    ...(agent !== undefined ? { agent } : {}),
-  }
-}
-
 async function setup(config = {}) {
-  const root = new Context()
-  await root.plugin(SystemPrompt, {})
-  await root.plugin(ToolRuntime, { mode: 'native' })
+  const { root } = await setupRuntime()
   apply(root, config)
   return root
 }
@@ -67,18 +52,15 @@ test('mutating esi_call is denied without approval; GET esi_call passes', async 
     })
 
     // GET passes.
-    const read = await root.tools.execute(execStub('esi_call', {
-      operation_id: 'get_alliances',
-    }))
+    const read = await runTool(root, { name: 'esi_call', args: { operation_id: 'get_alliances' } })
     assert.equal(read.isError, false, JSON.stringify(read.error))
 
     // Mutating call is denied BEFORE reaching the network.
     const mutation = firstMutatingEndpoint()
-    const write = await root.tools.execute(execStub('esi_call', {
-      operation_id: mutation.operationId,
-      path_params: {},
-      body: {},
-    }))
+    const write = await runTool(root, {
+      name: 'esi_call',
+      args: { operation_id: mutation.operationId, path_params: {}, body: {} },
+    })
     assert.equal(write.isError, true)
     assert.match(write.error.message, /mutating call/)
     assert.ok(write.error.message.includes(mutation.operationId), 'denial must name the operation')
@@ -99,22 +81,14 @@ test('materialized mutating tools are also approval-gated', async () => {
       authStorePath: join(dir, 'auth.json'),
       fetchImpl: (url, init) => fetch(url.replace(CN_BASE, `http://127.0.0.1:${mock.port}`), init),
     })
-    const agent = { id: 'approval-agent' }
-    let scope
-    await root.plugin(Object.assign(
-      (inner) => { scope = createScope(inner, agent) },
-      { inject: ['tools', 'systemPrompt'] },
-    ))
-    agent.ctx = scope.ctx
+    const agent = await createAgent(root, 'approval-agent')
 
     const mutation = firstMutatingEndpoint()
-    const load = await root.tools.execute(execStub('esi_endpoint_load', {
-      operation_ids: [mutation.operationId],
-    }, agent))
+    const load = await runTool(root, { name: 'esi_endpoint_load', agent, args: { operation_ids: [mutation.operationId] } })
     assert.equal(load.isError, false, JSON.stringify(load.error))
 
     // Executing the materialized mutating tool → denied, server untouched.
-    const call = await root.tools.execute(execStub(`esi_${mutation.operationId}`, {}, agent))
+    const call = await runTool(root, { name: `esi_${mutation.operationId}`, agent })
     assert.equal(call.isError, true)
     assert.match(call.error.message, /mutating call/)
     assert.equal(mock.hits.length, 0)

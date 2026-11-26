@@ -18,7 +18,6 @@ export type EveAccountLocaleKey =
   | 'defaultRegionLabel'
   | 'defaultRegionHint'
   | 'noRegion'
-  | 'comingSoon'
   | 'expand'
   | 'collapse'
   // oauth status line keys (host sends messageKey + messageParams)
@@ -29,6 +28,9 @@ export type EveAccountLocaleKey =
   | 'status.authorized'
 
 export type SdeCardLocaleKey =
+  | 'tabLabel'
+  | 'bridgeLoading'
+  | 'bridgeError'
   | 'title'
   | 'description'
   | 'urlLabel'
@@ -124,7 +126,6 @@ export const zhAccount: Record<EveAccountLocaleKey, string> = {
   defaultRegionLabel: '默认市场星域',
   defaultRegionHint: '未设置时市场工具默认使用吉他（The Forge）；选择后立即生效。',
   noRegion: '未设置（默认吉他）',
-  comingSoon: '即将推出（Coming Soon）',
   expand: '展开',
   collapse: '收起',
   'status.idle.noCharacters': '未授权任何角色',
@@ -135,8 +136,11 @@ export const zhAccount: Record<EveAccountLocaleKey, string> = {
 }
 
 export const zh: Record<SdeCardLocaleKey, string> = {
+  tabLabel: 'EVE ESI',
+  bridgeLoading: '正在连接 dsh-esi 主机…',
+  bridgeError: '无法连接 dsh-esi 主机：Web 界面不可用，或插件未挂载。',
   title: 'SDE 更新',
-  description: '从下载地址更新 EVE 静态数据（SDE）；支持任意 http(s) 地址，压缩包需包含 manifest.json 与各表 .jsonl',
+  description: '从下载地址更新 EVE 静态数据（SDE）；支持官方 jsonl 包（_sde.jsonl + 各表 .jsonl）或含 manifest.json 的镜像 zip',
   urlLabel: '下载地址',
   urlPlaceholder: 'https://example.com/sde/sde-20260731-mirror.zip',
   urlHint: '仅支持 http/https 地址；建议先确认服务器可达。网络中断、地址无效、压缩包损坏都会在这里给出明确报错。',
@@ -201,12 +205,12 @@ export const zh: Record<SdeCardLocaleKey, string> = {
   'err.pathEmpty': '压缩包包含空路径条目',
   'err.pathUnsafe': '压缩包包含不安全的路径：{name}',
   'err.pathTraversal': '压缩包包含越界路径（zip-slip）：{name}',
-  'err.payloadNoManifest': '压缩包内没有 manifest.json；这不是 SDE 镜像包（镜像 zip 应包含 manifest.json 与各表 .jsonl）',
+  'err.payloadNoManifest': '压缩包内没有 manifest.json 或 _sde.jsonl；这不是有效的 SDE 数据包',
   'err.payloadJsonInvalid': '压缩包内的 manifest.json 无法解析（不是有效的 JSON）',
   'err.payloadStructInvalid': '压缩包内的 manifest.json 结构无效',
-  'err.payloadNoBuild': 'manifest.json 缺少有效的 buildNumber',
+  'err.payloadNoBuild': '版本记录（manifest.json / _sde.jsonl）缺少有效的 buildNumber',
   'err.payloadNoTables': 'manifest.json 缺少 tables 表清单',
-  'err.payloadEmptyTables': 'manifest.json 的 tables 是空的（没有数据表）',
+  'err.payloadEmptyTables': '数据包内没有数据表（.jsonl）',
   'err.payloadMissingTables': '压缩包缺少数据表文件：{tables}',
   'err.payloadMissingTablesMany': '压缩包缺少数据表文件：{tables} 等 {count} 个',
   'err.diskFull': '磁盘空间不足，无法写入数据',
@@ -229,7 +233,6 @@ export const enAccount: Record<EveAccountLocaleKey, string> = {
   defaultRegionLabel: 'Default market region',
   defaultRegionHint: 'Market tools default to Jita (The Forge) when unset; takes effect immediately.',
   noRegion: 'Unset (default Jita)',
-  comingSoon: 'Coming soon',
   expand: 'Expand',
   collapse: 'Collapse',
   'status.idle.noCharacters': 'No authorized characters',
@@ -240,11 +243,14 @@ export const enAccount: Record<EveAccountLocaleKey, string> = {
 }
 
 export const en: Record<SdeCardLocaleKey, string> = {
+  tabLabel: 'EVE ESI',
+  bridgeLoading: 'Connecting to the dsh-esi host…',
+  bridgeError: 'Cannot reach the dsh-esi host: the Web interface is unavailable or the plugin is not mounted.',
   title: 'SDE Update',
-  description: 'Update EVE static data (SDE) from a download URL; any http(s) address works, the zip must contain manifest.json and one .jsonl per table',
+  description: 'Update EVE static data (SDE) from a download URL; the official jsonl export (_sde.jsonl plus one .jsonl per table) and jsonl mirrors with manifest.json are both supported',
   urlLabel: 'Download URL',
   urlPlaceholder: 'https://example.com/sde/sde-20260731-mirror.zip',
-  urlHint: 'http/https only; make sure the server is reachable. Network drops, bad URLs, and corrupt archives all produce explicit errors here.',
+  urlHint: 'http/https only; the official jsonl package (e.g. eve-online-static-data-<build>-jsonl.zip) or a mirror zip with manifest.json works.',
   update: 'Download & update',
   rollback: 'Rollback',
   rollbackHint: 'Switch back to the previous version kept on disk (recovers from a bad update).',
@@ -306,12 +312,12 @@ export const en: Record<SdeCardLocaleKey, string> = {
   'err.pathEmpty': 'Archive contains an empty path entry',
   'err.pathUnsafe': 'Archive contains an unsafe path: {name}',
   'err.pathTraversal': 'Archive contains an out-of-bounds path (zip-slip): {name}',
-  'err.payloadNoManifest': 'Archive has no manifest.json; this is not an SDE mirror package (a mirror zip must contain manifest.json and one .jsonl per table)',
+  'err.payloadNoManifest': 'Archive has no manifest.json or _sde.jsonl; this is not a valid SDE package',
   'err.payloadJsonInvalid': 'manifest.json inside the archive could not be parsed (not valid JSON)',
   'err.payloadStructInvalid': 'manifest.json inside the archive has an invalid structure',
-  'err.payloadNoBuild': 'manifest.json is missing a valid buildNumber',
+  'err.payloadNoBuild': 'The version record (manifest.json / _sde.jsonl) has no valid buildNumber',
   'err.payloadNoTables': 'manifest.json is missing the tables list',
-  'err.payloadEmptyTables': 'manifest.json has an empty tables list (no data tables)',
+  'err.payloadEmptyTables': 'The archive contains no data tables (.jsonl)',
   'err.payloadMissingTables': 'Archive is missing table files: {tables}',
   'err.payloadMissingTablesMany': 'Archive is missing table files: {tables} and {count} more',
   'err.diskFull': 'Not enough disk space to write the data',

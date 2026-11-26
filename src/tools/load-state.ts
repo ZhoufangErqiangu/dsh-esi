@@ -4,16 +4,14 @@
  * Materialized tools are registered per agent via `agent.ctx.tools.register()`
  * (scoped layer; auto-unregisters when the agent context disposes). This module
  * tracks the per-agent set so `esi_endpoint_load` can enforce the cap, list
- * loaded tools, and unload specific ones.
+ * loaded tools, and unload specific ones. The bookkeeping is disposed by the
+ * agent's own effect, so it cannot outlive the agent context.
  */
 
-import type { Context } from '@deepseek-ai/cordis'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 
-/** Structural agent view; satisfies `ToolExecution.agent` at runtime. */
-export interface EsiaAgentLike {
-  readonly id: string
-  readonly ctx: Context
-}
+/** The calling Agent (its `ctx` carries the scoped tool registration). */
+export type EsiaAgentLike = Agent
 
 export interface LoadedToolInfo {
   readonly name: string

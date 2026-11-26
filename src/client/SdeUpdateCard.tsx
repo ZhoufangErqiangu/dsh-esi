@@ -6,23 +6,27 @@
  * cards.
  */
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
-import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   CardFrame, Field, buttonDisabled, inputBase, inputDisabled, inputFocus,
   primaryButton, secondaryButton,
 } from './card-chrome.tsx'
-import type { SdeCardFace, SdeGuiStatusView } from './sde-card-controller.ts'
+import type { SdeCardState } from './esi-ui-client.ts'
 import type { SdeCardLocaleKey } from './locales.ts'
+import type { SdeUiStatus } from '../ui/protocol.ts'
 
 /** Dictionary namespace owned by this card. */
 export const LOCALE_NS = 'dsh-esi.sde-card'
 
-/** Props the renderer binds for the card. `t` rides the inject face (bound at apply time). */
-export type SdeUpdateCardProps =
-  PropsRuntime<'settings.plugin.item'>
-  & InjectFace<SdeCardFace>
+/** Props the settings tab passes to the card. */
+export interface SdeUpdateCardProps {
+  /** Card copy, bound to the card's dictionary namespace. */
+  readonly t: (key: SdeCardLocaleKey, params?: Record<string, unknown>) => string
+  readonly state: SdeCardState
+  readonly onUpdate: (url: string) => void
+  readonly onRollback: () => void
+}
 
 const PHASE_KEYS: Record<string, SdeCardLocaleKey> = {
   idle: 'idle',
@@ -77,14 +81,14 @@ const ERROR_KEYS: Record<string, SdeCardLocaleKey> = {
 }
 
 /** The localized status-line text: keyed (translated) when the host sent a key, raw otherwise. */
-function statusLine(t: (key: SdeCardLocaleKey, params?: Record<string, unknown>) => string, status: SdeGuiStatusView): string {
+function statusLine(t: (key: SdeCardLocaleKey, params?: Record<string, unknown>) => string, status: SdeUiStatus): string {
   return status.messageKey !== undefined
     ? t(status.messageKey as SdeCardLocaleKey, status.messageParams)
     : status.message
 }
 
 /** The localized error text: code-keyed (translated) when known, raw otherwise. */
-function errorLine(t: (key: SdeCardLocaleKey, params?: Record<string, unknown>) => string, error: NonNullable<SdeGuiStatusView['error']>): string {
+function errorLine(t: (key: SdeCardLocaleKey, params?: Record<string, unknown>) => string, error: NonNullable<SdeUiStatus['error']>): string {
   const key = ERROR_KEYS[error.code]
   return key !== undefined ? t(key, error.params) : error.message
 }
@@ -139,7 +143,7 @@ const errorText: CSSProperties = {
   padding: '0 0 12px',
   fontSize: 12,
   lineHeight: 1.5,
-  color: 'var(--dsw-alias-label-error)',
+  color: 'var(--dsw-alias-state-error-primary)',
   whiteSpace: 'pre-wrap',
   wordBreak: 'break-word',
 }
@@ -167,12 +171,17 @@ const link: CSSProperties = {
  * @param props - locale copy, the card snapshot, and its trigger actions.
  * @returns the card.
  */
-export function SdeUpdateCard(props: SdeUpdateCardProps) {
-  const { t } = props
-  const state = props.useSdeCard((snapshot) => snapshot)
+export function SdeUpdateCard({ t, state, onUpdate, onRollback }: SdeUpdateCardProps) {
   const [url, setUrl] = useState('')
   const [urlFocused, setUrlFocused] = useState(false)
   const [invalid, setInvalid] = useState<string | undefined>(undefined)
+  const edited = useRef(false)
+
+  // Prefill the configured mirror URL until the user edits the field.
+  const defaultUrl = state.defaultUpdateUrl
+  useEffect(() => {
+    if (!edited.current && url === '' && defaultUrl !== undefined) setUrl(defaultUrl)
+  }, [defaultUrl, url])
 
   if (!state.available) return null
 
@@ -183,17 +192,17 @@ export function SdeUpdateCard(props: SdeUpdateCardProps) {
       return
     }
     setInvalid(undefined)
-    props.runUpdate(trimmed)
+    onUpdate(trimmed)
   }
 
   const startRollback = (): void => {
     setInvalid(undefined)
-    props.rollback()
+    onRollback()
   }
 
   const status = state.status
   const phaseKey = status === undefined ? undefined : PHASE_KEYS[status.phase]
-  const busyOrLocked = state.busy || !state.writable
+  const busyOrLocked = state.busy
 
   return (
     <CardFrame
@@ -216,7 +225,7 @@ export function SdeUpdateCard(props: SdeUpdateCardProps) {
           disabled={busyOrLocked}
           placeholder={t('urlPlaceholder')}
           aria-invalid={invalid !== undefined}
-          onChange={(event) => { setUrl(event.target.value) }}
+          onChange={(event) => { edited.current = true; setUrl(event.target.value) }}
           onFocus={() => { setUrlFocused(true) }}
           onBlur={() => { setUrlFocused(false) }}
         />

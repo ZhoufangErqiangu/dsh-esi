@@ -7,9 +7,10 @@
  * catalog is queried on demand via esi_endpoint_search, and hot endpoints can
  * be materialized as native tools per agent via esi_endpoint_load.
  *
- * Phase 4 status: OAuth authorization (esi_authorize via a loopback callback),
- * token persistence, per-agent scoped materialization, and approval-gated
- * mutating calls are implemented. SDE query/update arrive in later phases.
+ * Runtime pieces: the ESI client (auth/token store, pacing, retries, paging),
+ * SDE query/update/rollback, per-agent tool materialization, approval-gated
+ * mutating calls, and the optional browser bridge that backs the settings
+ * cards in Settings → Plugins → EVE ESI.
  *
  * @module dsh-esi
  */
@@ -19,10 +20,10 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { JsonValue } from '@deepseek-ai/dsh-tools'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { EsiaAuthService } from './auth/service.ts'
 import { TokenStore } from './auth/token-store.ts'
-import { AccountBridge } from './account/account-bridge.ts'
+import { AccountUi } from './account/account-state.ts'
 import type { EsiaAbortSignal, EsiaClientConfig, ServerId } from './esia-client.ts'
 import { EsiaClient } from './esia-client.ts'
 import {
@@ -36,8 +37,8 @@ import {
 import { ESI_GUIDE, ESI_GUIDE_SECTION_NAME } from './prompt.ts'
 import { SdeService } from './sde/service.ts'
 import { SdeUpdater } from './sde/update.ts'
-import { attachSdeGui } from './sde/gui-bridge.ts'
-import type { SdeGuiStatus } from './sde/gui-runner.ts'
+import { SdeUpdateRunner } from './sde/runner.ts'
+import { EsiUiBridge } from './ui/bridge.ts'
 import { createSdeQueryTool, createSdeStatusTool } from './tools/sde.ts'
 import { createSdeRollbackTool, createSdeUpdateTool } from './tools/sde-update.ts'
 import { createAccountsTool, createAuthorizeTool, createDeauthorizeTool } from './tools/authorize.ts'
@@ -78,7 +79,11 @@ export interface EsiaPluginConfig {
   sdeLanguage?: 'de' | 'en' | 'es' | 'fr' | 'ja' | 'ko' | 'ru' | 'zh'
   /** SDE update source (default: none — sde_update reports how to configure). */
   sdeUpdateSource?: import('./sde/update.ts').SdeUpdateSource
-  /** How long the settings card's EVE login waits for the browser redirect (default 180 s). */
+  /** Default SDE mirror URL the settings card prefills when it has none typed. */
+  sdeUpdateUrl?: string
+  /** Initial default market region for the market tools (default: Jita). */
+  defaultMarketRegionId?: number
+  /** How long the account card's EVE login waits for the browser redirect (default 180 s). */
   oauthWaitSeconds?: number
 }
 
@@ -117,29 +122,31 @@ export function apply(ctx: Context, config: EsiaPluginConfig = {}): void {
     source: config.sdeUpdateSource,
     defaultLanguage: config.sdeLanguage,
   })
-  // The GUI bridge registers the `dsh-esi` settings namespace (the settings
-  // card binds it) and watches its trigger fields; the shared runner also
-  // backs the sde_update url tool, so chat and card never run concurrently
-  // against the same data root.
-  const sdeRunner = attachSdeGui(ctx, {
+  // One SDE runner backs both the browser card and the sde_update url tool, so
+  // a chat-driven update and a card-driven one serialize on the same data root.
+  const sdeRunner = new SdeUpdateRunner({
     dataRoot: config.dataRoot ?? defaultDataRoot(),
     defaultLanguage: config.sdeLanguage,
   })
-  const urlRunner = (url: string, signal: EsiaAbortSignal | undefined): Promise<unknown> => {
-    let last: SdeGuiStatus | undefined
-    return sdeRunner.runUpdate(url, (status) => { last = status }, signal as AbortSignal | undefined)
-      .then(() => last as unknown)
-  }
-  // Account/market bridge: the OAuth card binds the `dsh-esi-account`
-  // namespace; the bridge also tracks the default market region the market
-  // tools default to.
-  const accountBridge = new AccountBridge({
+  // Account state drives the account card (login, character list, default
+  // market region) without persisting transient state into the profile.
+  const accountUi = new AccountUi({
     auth,
     sde,
     defaultLanguage: config.sdeLanguage,
     oauthWaitMs: (config.oauthWaitSeconds ?? 180) * 1000,
+    defaultRegionId: config.defaultMarketRegionId,
   })
-  accountBridge.attach(ctx)
+  const bridge = new EsiUiBridge({
+    runner: sdeRunner,
+    account: accountUi,
+    defaultUpdateUrl: config.sdeUpdateUrl,
+  })
+  bridge.attach(ctx)
+  // Same operation, tool caller: the url-mode sde_update returns the settled
+  // status the card would show.
+  const urlRunner = (url: string, signal: EsiaAbortSignal | undefined): Promise<unknown> =>
+    bridge.runUpdate(url, signal as AbortSignal | undefined) as unknown as Promise<unknown>
 
   ctx.systemPrompt.section({ name: ESI_GUIDE_SECTION_NAME, order: 116, text: ESI_GUIDE })
 
@@ -147,7 +154,7 @@ export function apply(ctx: Context, config: EsiaPluginConfig = {}): void {
   ctx.tools.register(createSdeStatusTool(sde))
   ctx.tools.register(createSdeQueryTool(sde))
   ctx.tools.register(createSdeUpdateTool(updater, urlRunner))
-  ctx.tools.register(createSdeRollbackTool(updater))
+  ctx.tools.register(createSdeRollbackTool(updater, () => bridge.rollback()))
   ctx.tools.register(createSearchTool())
   ctx.tools.register(createCallTool(client))
   ctx.tools.register(createLoadTool(client, { cap: config.maxMaterialized }))
@@ -155,7 +162,7 @@ export function apply(ctx: Context, config: EsiaPluginConfig = {}): void {
   // frequently repeated patterns (see the manufacturing session analysis) —
   // both get dedicated first-class tools instead of raw multi-call workflows.
   ctx.tools.register(createItemLookupTool(sde))
-  ctx.tools.register(createMarketPricesTool(client, sde, { defaultRegionId: () => accountBridge.defaultRegionId() }))
+  ctx.tools.register(createMarketPricesTool(client, sde, { defaultRegionId: () => accountUi.defaultRegionId() }))
   ctx.tools.register(createAuthorizeTool(auth))
   ctx.tools.register(createAccountsTool(auth))
   ctx.tools.register(createDeauthorizeTool(auth))

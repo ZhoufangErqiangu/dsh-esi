@@ -2,6 +2,8 @@
 
 > 目标：在 DSH（DeepSeek Harness）中实现一个接入 EVE Online **ESI API** 与 **SDE 静态数据** 的 Cordis 插件。
 > 本文件先解决核心难点 —— **204 个 ESI 端点不能全部暴露为工具**，再给出整体架构、SDE 更新方案与实施顺序。
+>
+> 当前实现基线：**DSH 0.2.2-rc.5 / Node.js 24.9+**。2026-11 的升级与重构说明见 README「Migration to DSH 0.2.2」；下文 §0.3、§5 的 GUI 段与 §6 已按新 API 更新，历史设计结论（工具面策略、SDE 管线）保持不变。
 
 ---
 
@@ -33,15 +35,16 @@
 - 本地化字段是嵌套对象：`name: {de,en,es,fr,ja,ko,ru,zh}`，查询需支持语言选择。
 - 目录名中的 `3470007` 是构建号；该格式来自第三方 jsonl 导出（非官方 zip 原样），更新方案需考虑来源。
 
-### 0.3 DSH 插件机制（已核对 harness 源码）
+### 0.3 DSH 插件机制（已按 0.2.2-rc.5 重新核对）
 
-- 插件契约：导出 `name` / `inject` / `apply(ctx)`（参考 `packages/extensions/tool-cordis`）。
-- `ctx.tools.register(defineTool(...))` —— 返回 disposer，**支持运行时注册/注销**；按作用域注册走 `agent.ctx`（scoped context），scoped 工具 shadow 全局工具。
-- `ctx.tools.restrict({allow|deny})` —— 按 agent 作用域裁剪全局工具。
-- `ctx.systemPrompt.section({name, order, text})` —— 注入 prompt 段落，`text` 可为按 assembly 求值的 provider。
-- `ctx.on('agent/pre-step', ...)` —— 每一步前挂钩，可注入上下文消息（tool-cordis 的 `@pluginId` 注入即此模式）。
+- 插件契约：导出 `inject` / `apply(ctx, config)`；`apply` 内所有注册都应是 context effect。
+- `ctx.tools.register(defineTool(...), { when? })` —— 返回 disposer；在 `agent.ctx` 上注册即作用域化（scoped 工具 shadow 全局工具，随 agent 销毁）。条件工具通过 `when` 参与步骤准入（`tools.resolve`）。
+- `ToolsService.execute({ calls, signal, agent })` —— 0.2 起按“一批模型调用”执行；执行器由显式插件提供（本项目测试挂载 `dsh-tool-executor-native`）。
+- `ctx.tools.restrict({allow|deny})` / `ctx.tools.guard()` —— 按 agent 作用域裁剪或同步拒绝全局工具。
+- `ctx.systemPrompt.section({name, order, text})` —— 注入 prompt 段落，`text` 可为按 assembly 求值的 provider；工具声明不再经过 `system-prompt/assemble`。
 - `tools/pre-execute | execute | post-execute` —— 每个工具调用的策略瀑布：approval（`ask`）、重试、超时等。
-- `mode: 'code'` —— 把模型可见工具面收敛为单个 `run_code` + SDK prompt（全局呈现模式，SDK 仍含全部 schema，不适合本场景的"零污染"诉求，但插件需与之兼容）。
+- 配置：插件条目 schema 由 loader 读取，设置页表单由 `ctx.settings` 从各条目派生；浏览器侧用 `ctx.configForms`。旧的 `settingsNamespace` / `settingsScope` 临时命名空间通道已在 0.2 移除，实时状态改由插件自建 Host 接口（本项目用 Web server 路由）。
+- 浏览器插件：`dsh.client` 双面包（`platform` / `inject` / `./client` 导出）；Client 服务由 `@deepseek-ai/dsh-client-ui-renderer` 等基础包声明，UI 通过 `ctx.slots.inject` / `ctx.slots.register` 贡献；插件配置页槽位为 `settings.plugins.tab`，整页为 `settings.section`。
 
 ---
 
@@ -180,11 +183,11 @@ prompt 指引段（systemPrompt.section，约 300 token）：
 
 实现状态：`sde_update` 机制（dry-run 计划 / sha256 增量 / 原子切换 / 回滚）已按 §5.2 落地并测试通过；交付两个源适配器：
 - **JsonlSdeSource**（配置源）：消费与本插件数据同构的 jsonl+manifest 镜像；
-- **ZipSdeSource**（`sde_update` 的 `url` 参数，用户任意输入）：任意 http(s) URL → zip（jsonl 镜像包）→ 下载 → 校验 → 原子安装。完整错误分类：URL 校验（仅 http/https，拒绝 file:// 等）、网络错误（连接失败/超时/HTTP 状态/下载中断，瞬时故障自动重试退避）、zip 完整性（魔数 + fflate 解压）、zip-slip 路径防护、zip 炸弹（条目数与解压大小上限）、载荷校验（manifest.json/buildNumber/表文件齐全）、磁盘空间/权限；失败永远清理 staging，旧版本保持可查询直到原子切换完成（`GuiRunner` 先在 staging 构建索引再 rename 切换）。错误统一为 `SdeZipError`（稳定 `code` + 中文 `message`）。
+- **ZipSdeSource**（`sde_update` 的 `url` 参数，用户任意输入）：任意 http(s) URL → zip（官方 CCP jsonl 包：`_sde.jsonl` + 各表 `.jsonl`；或带 `manifest.json` 的 jsonl 镜像包）→ 下载 → 校验 → 原子安装。官方包没有 manifest.json，校验器从 `_sde.jsonl` 读取 buildNumber/releaseDate，安装后由 `buildManifestForVersionDir` 派生 manifest 与索引。完整错误分类：URL 校验（仅 http/https，拒绝 file:// 等）、网络错误（连接失败/超时/HTTP 状态/下载中断，瞬时故障自动重试退避）、zip 完整性（魔数 + fflate 解压）、zip-slip 路径防护、zip 炸弹（条目数与解压大小上限）、载荷校验（manifest.json/buildNumber/表文件齐全）、磁盘空间/权限；失败永远清理 staging，旧版本保持可查询直到原子切换完成（`SdeUpdateRunner` 先在 staging 构建索引再 rename 切换）。错误统一为 `SdeZipError`（稳定 `code` + 中文 `message`）。
 
 **官方 SDE zip 转换器（CSV/YAML → jsonl）为待办**：按 `SdeUpdateSource` 接口实现 `OfficialZipSdeSource`（下载 → 解压 → 并行转换 → 校验 → 交付版本目录），转换规范以现有 jsonl 约定为准。
 
-设置页卡片（下载地址输入框 + 更新/回滚按钮 + 实时进度/错误展示）已启用并完成端到端调试（`scripts/verify-card.mjs`，7/7 场景）。架构：dsh-esi 是 `dsh.client` 双面包——浏览器半 `src/client/` 经 tsdown 打成 `lib/client.js`（`__ModuleLoader__.load` 协议、externals=冻结模块表），以 `key: 'dsh-esi'` 注册进 `settings.plugin.item`（该槽在当前 harness 中为 keyed，按 settings 命名空间键控）；host 半 `attachSdeGui` 注册 `dsh-esi` 命名空间并监听 `sdeUpdateRequest`/`sdeRollbackRequest`（非零 nonce 触发），状态经 `replace()` 写回 `sdeUpdateStatus`（用 replace 而非 update，避免深合并残留下载阶段的 progress 等旧字段），浏览器经 `settings/document-updated` 转发事件实时刷新。挂载前提：profile 兄弟 `node_modules` 内符号链接 `@dsh-esi/plugin-esi` → 本仓库，patch 用包名挂载。更新入口：设置页卡片或 `sde_update` 聊天工具（共用同一 `SdeGuiRunner`，并发防护）。
+设置页卡片（下载地址输入框 + 更新/回滚按钮 + 实时进度/错误展示）在 0.2.2 上重建为“Host JSON 桥 + 轮询”：dsh-esi 仍是 `dsh.client` 双面包——浏览器半 `src/client/` 经 tsdown 打成 `lib/client.js`（`__ModuleLoader__.load` 协议，externals 仅 React），同时注册进 `plugins.bundle.config`（key = 包名 `@dsh-esi/plugin-esi`，插件面板中 bundle 页面的配置区；DSH 的 config ledger 以此判定 bundle 可配置）与 `settings.plugins.tab`（“设置 → 插件”中的 `EVE ESI` 标签页）。每个挂载副本各自持有一个轮询客户端，并按可见性暂停。host 半 `EsiUiBridge` 通过 `ctx.inject(['webServer'])` 在 `/dsh-esi/api/*` 暴露一个同源 JSON 接口：`GET state` 返回 SDE/账号状态，`POST` 各动作触发更新、回滚、登录、撤销与默认星域切换。之所以不再走 settings 命名空间：0.2 的配置表单由各插件条目的 `Config` 派生，临时命名空间通道已移除，且进度/登录状态本就不应写入用户 profile。卡片挂载期间每秒轮询一次，动作响应直接带回新状态；写接口拒绝跨源请求并要求 JSON 体。更新入口仍是设置页卡片或 `sde_update` 聊天工具，两者共用同一 `SdeUpdateRunner`（并发防护），登录与 `esi_authorize` 共用 `EsiaAuthService`。验收：`tests/ui-bridge.test.mjs`（真实 Web server + HTTP）与 `scripts/acceptance.mjs`（真实 `dsh web` 挂载）。
 - 官方 zip 实测 URL（2026-08）：`https://eve-static-data-export.s3-eu-west-1.amazonaws.com/tranquility/sde.zip`（HEAD 200，约 112MB）；国服同桶 `serenity/sde.zip` 返回 403（未发布），国服数据更新需以世界服 zip 为准或另寻源。
 - 转换器依赖：CSV 解析（`*` 列名头 + `<table>_<lang>.csv` 语言文件合并）可纯 Node 实现；fsd YAML 需引入最小 YAML 解析依赖（如 `yaml`），按 `SdeUpdateSource` 接口交付。
 
@@ -202,15 +205,18 @@ dsh-esi/
 ├─ scripts/gen-catalog.mjs       # swagger → 目录模块生成器
 ├─ src/
 │  ├─ generated/catalog.ts       # 生成的紧凑目录（204 端点元数据）
-│  ├─ catalog.ts                 # 目录搜索服务
+│  ├─ catalog-types.ts           # 目录类型
 │  ├─ esia-client.ts             # HTTP/限流/分页/缓存/错误归一化
-│  ├─ auth.ts                    # OAuth + token 存储
-│  ├─ sde/{manifest,query,update,index}.ts
+│  ├─ auth/                      # OAuth flow + token 存储
+│  ├─ account/account-state.ts   # 账号卡片状态（登录/角色/默认星域）
+│  ├─ sde/                       # 查询、更新、zip 源、runner
+│  ├─ ui/{protocol,bridge}.ts    # 浏览器桥：共享协议 + HTTP 路由
 │  ├─ tools/                     # 固定工具 + 物化器
 │  ├─ prompt.ts                  # 系统提示词段
-│  └─ index.ts                   # plugin: name/inject/apply
-├─ client/                       # （可选）客户端半部：OAuth 回调/设置面板
-└─ tests/                        # 单测（mock ESI）+ 可选 e2e（公开端点）
+│  └─ index.ts                   # plugin: inject/apply
+├─ src/client/                   # 浏览器半面：EVE ESI 标签页 + 两张卡片
+├─ tests/                        # node:test（mock ESI + 真实 Web server 桥测试）
+└─ scripts/                      # codegen / SDE manifest / smoke / e2e / acceptance
 ```
 
 实施阶段：

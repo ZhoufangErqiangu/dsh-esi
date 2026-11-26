@@ -36,7 +36,7 @@ jobs:
       - name: Verify
         run: |
           pnpm run gen:check
-          pnpm exec tsc -p tsconfig.ci.json
+          pnpm exec tsc -p tsconfig.json
           pnpm test
 
       - name: Build bundle

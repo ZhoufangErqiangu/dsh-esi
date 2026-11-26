@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { strToU8, zipSync } from 'fflate'
-import { SdeGuiRunner } from '../src/sde/gui-runner.ts'
+import { SdeUpdateRunner } from '../src/sde/runner.ts'
 import { createSdeUpdateTool, createSdeRollbackTool } from '../src/tools/sde-update.ts'
 
 function makeZip() {
@@ -40,7 +40,7 @@ test('sde_update url mode: dry-run plan, then execute, then rollback', async () 
   const { server, port } = await startServer()
   const dataRoot = mkdtempSync(join(tmpdir(), 'dsh-esi-tool-'))
   try {
-    const runner = new SdeGuiRunner({ dataRoot })
+    const runner = new SdeUpdateRunner({ dataRoot })
     const urlRunner = (url, signal) => {
       let last
       return runner.runUpdate(url, (s) => { last = s }, signal).then(() => last)
@@ -73,7 +73,7 @@ test('sde_update url mode: dry-run plan, then execute, then rollback', async () 
 test('sde_update url mode: invalid URL and missing source surface typed errors', async () => {
   const dataRoot = mkdtempSync(join(tmpdir(), 'dsh-esi-tool-'))
   try {
-    const runner = new SdeGuiRunner({ dataRoot })
+    const runner = new SdeUpdateRunner({ dataRoot })
     const urlRunner = (url, signal) => {
       let last
       return runner.runUpdate(url, (s) => { last = s }, signal).then(() => last)
@@ -90,4 +90,17 @@ test('sde_update url mode: invalid URL and missing source surface typed errors',
   } finally {
     rmSync(dataRoot, { recursive: true, force: true })
   }
+})
+
+test('sde_rollback uses the shared runner when one is provided', async () => {
+  let calls = 0
+  const updater = { listVersions: () => [] }
+  const runner = async () => {
+    calls += 1
+    return { phase: 'done', currentBuild: 7, at: Date.now() }
+  }
+  const tool = createSdeRollbackTool(updater, runner)
+  const result = await tool.execute({ confirm: true }, { signal: undefined })
+  assert.equal(calls, 1, 'the shared runner must own rollback, not a second pipeline')
+  assert.equal(result.currentBuild, 7)
 })

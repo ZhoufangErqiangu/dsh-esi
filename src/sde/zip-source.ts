@@ -11,8 +11,10 @@
  *   retried with backoff; 4xx is not.
  * - Archive safety: zip magic check, fflate integrity (CRC/central directory),
  *   zip-slip path guard, entry-count and extracted-size caps (zip bombs).
- * - Payload validation: manifest.json must exist and carry a valid
- *   buildNumber + non-empty tables; every listed table must have its .jsonl.
+ * - Payload validation: either a mirror manifest.json (valid buildNumber +
+ *   non-empty tables, every listed table present) or the official CCP jsonl
+ *   export layout (`_sde.jsonl` + one `<table>.jsonl` per table, no manifest);
+ *   the update runner builds manifest.json + sde.db after extraction.
  * - Atomic install: extraction happens in a staging dir; the old version
  *   stays live until the staging dir is renamed into place; a same-content
  *   re-download reuses the existing version dir.
@@ -95,8 +97,12 @@ export const DEFAULT_ZIP_OPTIONS: Required<Omit<ZipSourceOptions, 'fetchImpl' | 
 const MAX_URL_LENGTH = 2048
 const MAX_ENTRY_COUNT = 5000
 const ZIP_MAGIC = [0x50, 0x4b, 0x03, 0x04] // PK\x03\x04
-/** Build-number pattern found in mirror filenames like sde-20240731-TRANQUILITY.zip. */
-const BUILD_IN_FILENAME = /(?:^|\D)(\d{8})(?:\D|$)/
+/**
+ * Build-number pattern in download filenames: dates in mirror names
+ * (`sde-20240731-TRANQUILITY.zip`) and the official CCP build ids
+ * (`eve-online-static-data-3749835-jsonl.zip`).
+ */
+const BUILD_IN_FILENAME = /(?:^|\D)(\d{6,9})(?:\D|$)/
 
 /** A real HTTP error for a typed 4xx/5xx response. */
 export class HttpStatusError extends SdeZipError {
@@ -403,13 +409,10 @@ function safeEntryPath(rawName: string): string {
   return name
 }
 
-/** Validate the extracted payload: manifest.json + every listed table's .jsonl. */
+/** Validate the extracted payload: mirror manifest, or the official jsonl layout. */
 function validatePayload(versionDir: string, files: readonly string[]): SdeManifest {
   if (!files.includes('manifest.json')) {
-    throw new SdeZipError(
-      'PAYLOAD_NO_MANIFEST',
-      '压缩包内没有 manifest.json；这不是 SDE 镜像包（镜像 zip 应包含 manifest.json 与各表 .jsonl）',
-    )
+    return validateOfficialJsonlPayload(versionDir, files)
   }
   let manifest: unknown
   try {
@@ -444,6 +447,58 @@ function validatePayload(versionDir: string, files: readonly string[]): SdeManif
     )
   }
   return manifest as SdeManifest
+}
+
+/**
+ * Validate the official CCP static-data jsonl export: one `_sde.jsonl` version
+ * record plus one `<table>.jsonl` per table, with no manifest.json. The update
+ * runner derives manifest.json and sde.db from the files after extraction, so
+ * this branch only proves the archive is that layout and reads its build id.
+ */
+function validateOfficialJsonlPayload(versionDir: string, files: readonly string[]): SdeManifest {
+  if (!files.includes('_sde.jsonl')) {
+    throw new SdeZipError(
+      'PAYLOAD_NO_MANIFEST',
+      '压缩包内没有 manifest.json 或 _sde.jsonl；这不是 SDE 数据包（官方 jsonl 包应含 _sde.jsonl 与各表 .jsonl）',
+    )
+  }
+  let record: unknown
+  try {
+    const line = readFileSync(join(versionDir, '_sde.jsonl'), 'utf8')
+      .split(/\r?\n/)
+      .find((candidate) => candidate.trim() !== '')
+    if (line === undefined) throw new Error('empty _sde.jsonl')
+    record = JSON.parse(line)
+  } catch {
+    throw new SdeZipError('PAYLOAD_JSON_INVALID', '压缩包内的 _sde.jsonl 无法解析（不是有效的 JSON）')
+  }
+  if (record === null || typeof record !== 'object' || Array.isArray(record)) {
+    throw new SdeZipError('PAYLOAD_STRUCT_INVALID', '压缩包内的 _sde.jsonl 结构无效')
+  }
+  const fields = record as Record<string, unknown>
+  const buildNumber = fields.buildNumber
+  if (typeof buildNumber !== 'number' || !Number.isInteger(buildNumber) || buildNumber <= 0) {
+    throw new SdeZipError('PAYLOAD_NO_BUILD', '_sde.jsonl 缺少有效的 buildNumber')
+  }
+  const tables = files.filter((file) => file.endsWith('.jsonl') && file !== '_sde.jsonl' && !file.includes('/'))
+  if (tables.length === 0) {
+    throw new SdeZipError('PAYLOAD_EMPTY_TABLES', '压缩包内没有数据表 .jsonl 文件')
+  }
+  if (!files.includes('types.jsonl')) {
+    throw new SdeZipError(
+      'PAYLOAD_MISSING_TABLES',
+      '压缩包缺少数据表文件：types.jsonl',
+      { params: { tables: 'types.jsonl' } },
+    )
+  }
+  return {
+    buildNumber,
+    releaseDate: typeof fields.releaseDate === 'string' ? fields.releaseDate : new Date().toISOString(),
+    generatedAt: new Date().toISOString(),
+    // Real per-table stats are produced by buildManifestForVersionDir after
+    // extraction; this synthetic manifest only carries the version identity.
+    tables: {},
+  }
 }
 
 function truncate(value: string, max: number): string {

@@ -4,12 +4,9 @@
  * against local mock servers:
  *   esi_status → search → esi_call → esi_authorize (browser simulated) →
  *   protected esi_call with token attached → materialize → scoped isolation.
- * Not part of the committed node:test suite (needs the harness checkout).
+ * Not part of the committed node:test suite (kept as a manual end-to-end run).
  */
-import { Context } from '@deepseek-ai/cordis'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime from '@deepseek-ai/dsh-tools'
-import { createScope } from '@deepseek-ai/dsh-scope'
+import { setupRuntime, createAgent, runTool } from '../tests/helpers/runtime.mjs'
 import { createServer } from 'node:http'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -65,9 +62,13 @@ const transport = (url, init) => fetch(
   init,
 )
 
-const root = new Context()
-await root.plugin(SystemPrompt, {})
-await root.plugin(ToolRuntime, { mode: 'native' })
+const { root } = await setupRuntime()
+const callTool = async (exec) => runTool(root, {
+  name: exec.name,
+  args: exec.arguments,
+  agent: exec.agent,
+  signal: exec.signal,
+})
 
 const storeDir = mkdtempSync(join(tmpdir(), 'dsh-esi-smoke-'))
 let resolveAuthorizeUrl
@@ -94,18 +95,18 @@ const exec = (name_, arguments_, agent) => ({
 console.log('plugin name:', name)
 
 // 1. status
-const status = await root.tools.execute(exec('esi_status', {}))
+const status = await callTool(exec('esi_status', {}))
 assert(!status.isError, JSON.stringify(status.error))
 assert(status.value.endpointCount === 204, 'endpoint count')
 console.log('esi_status ok —', status.value.endpointCount, 'endpoints,', status.value.authorizedCharacters.length, 'authorized')
 
 // 2. search
-const search = await root.tools.execute(exec('esi_endpoint_search', { query: 'character assets' }))
+const search = await callTool(exec('esi_endpoint_search', { query: 'character assets' }))
 assert(!search.isError, JSON.stringify(search.error))
 console.log('esi_endpoint_search ok —', search.value.count, 'matches')
 
 // 3. call (generic dispatcher, public endpoint)
-const call = await root.tools.execute(exec('esi_call', {
+const call = await callTool(exec('esi_call', {
   operation_id: 'get_characters_character_id',
   path_params: { character_id: 42 },
 }))
@@ -114,7 +115,7 @@ assert(call.value.data.name === 'Smoke Capsuleer', 'dispatcher must hit the mock
 console.log('esi_call ok —', call.value.data.name)
 
 // 4. authorize (browser simulated via the loopback capture)
-const authPending = root.tools.execute(exec('esi_authorize', { scopes: ['esi-assets.read_assets.v1'] }))
+const authPending = callTool(exec('esi_authorize', { scopes: ['esi-assets.read_assets.v1'] }))
 const authorizeUrl = await authorizeUrlPromise
 assert(authorizeUrl !== '', 'onFlowStart must deliver the authorize URL')
 const authUrl = new URL(authorizeUrl)
@@ -132,7 +133,7 @@ assert(authResult.value.characterName === 'Smoke Pilot', 'verify must resolve th
 console.log('esi_authorize ok —', authResult.value.characterName, 'scopes:', authResult.value.scopes.length)
 
 // 5. protected call now attaches the token
-const assets = await root.tools.execute(exec('esi_call', {
+const assets = await callTool(exec('esi_call', {
   operation_id: 'get_characters_character_id_assets',
   path_params: { character_id: 42 },
 }))
@@ -141,39 +142,33 @@ assert(seenAuth.length === 1 && seenAuth[0] === 'Bearer smoke-token', 'token mus
 console.log('protected esi_call ok — Authorization attached')
 
 // 6. accounts
-const accounts = await root.tools.execute(exec('esi_accounts', {}))
+const accounts = await callTool(exec('esi_accounts', {}))
 assert(!accounts.isError, JSON.stringify(accounts.error))
 assert(accounts.value.accounts.length === 1, 'one account must be listed')
 console.log('esi_accounts ok —', accounts.value.accounts[0].characterName)
 
 // 6b. SDE status + real-data queries (indexed fast path and stream scan)
-const sdeStatus = await root.tools.execute(exec('sde_status', {}))
+const sdeStatus = await callTool(exec('sde_status', {}))
 assert(!sdeStatus.isError, JSON.stringify(sdeStatus.error))
 assert(sdeStatus.value.buildNumber === 3470007, 'real data build')
 assert(sdeStatus.value.manifestPresent === true, 'manifest must exist')
 assert(sdeStatus.value.dbPresent === true, 'sde.db must be present')
 console.log('sde_status ok — build', sdeStatus.value.buildNumber, '|', sdeStatus.value.tableCount, 'tables, db', sdeStatus.value.dbPresent)
 
-const sdeQuery = await root.tools.execute(exec('sde_query', { table: 'types', search_text: 'rifter', limit: 3, language: 'zh' }))
+const sdeQuery = await callTool(exec('sde_query', { table: 'types', search_text: 'rifter', limit: 3, language: 'zh' }))
 assert(!sdeQuery.isError, JSON.stringify(sdeQuery.error))
 assert(sdeQuery.value.count >= 1, 'rifter must be found')
 assert(sdeQuery.value.rows[0].name !== undefined, 'localized name resolved')
 console.log('sde_query ok —', sdeQuery.value.count, 'matches, first:', sdeQuery.value.rows[0].name, '(zh), engine:', sdeQuery.value.meta.engine)
 
 // 7. materialize into an agent scope
-const agent = { id: 'smoke-agent' }
-let scope
-await root.plugin(Object.assign(
-  (inner) => { scope = createScope(inner, agent) },
-  { inject: ['tools', 'systemPrompt'] },
-))
-agent.ctx = scope.ctx
-const load = await root.tools.execute(exec('esi_endpoint_load', { operation_ids: ['get_characters_character_id_assets'] }, agent))
+const agent = await createAgent(root, 'smoke-agent')
+const load = await callTool(exec('esi_endpoint_load', { operation_ids: ['get_characters_character_id_assets'] }, agent))
 assert(!load.isError, JSON.stringify(load.error))
-const mat = await root.tools.execute(exec('esi_get_characters_character_id_assets', { character_id: 42 }, agent))
+const mat = await callTool(exec('esi_get_characters_character_id_assets', { character_id: 42 }, agent))
 assert(!mat.isError, JSON.stringify(mat.error))
 assert(mat.value.data.length === 1, 'materialized tool must call the mock')
-const gone = await root.tools.execute(exec('esi_get_characters_character_id_assets', { character_id: 42 }))
+const gone = await callTool(exec('esi_get_characters_character_id_assets', { character_id: 42 }))
 assert(gone.isError && gone.error.info.code === 'UNKNOWN_TOOL', 'must not leak outside the agent scope')
 console.log('materialization ok — scoped execution + isolation')
 

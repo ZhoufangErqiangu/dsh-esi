@@ -225,3 +225,24 @@ test('multiple version dirs without a current symlink are rejected', () => {
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('a missing data root reports a setup state instead of a raw ENOENT', async () => {
+  const missing = join(tmpdir(), `dsh-esi-sde-missing-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+  const sde = new SdeService({ dataRoot: missing })
+  const status = sde.status()
+  assert.equal(status.installed, false)
+  assert.equal(status.buildNumber, 0)
+  assert.match(status.message, /SDE 数据未安装/)
+  await assert.rejects(
+    sde.query({ table: 'types', ids: [34] }),
+    /SDE 数据未安装.*sde_update/,
+  )
+
+  const empty = mkdtempSync(join(tmpdir(), 'dsh-esi-sde-empty-'))
+  try {
+    const emptyStatus = new SdeService({ dataRoot: empty }).status()
+    assert.equal(emptyStatus.installed, false)
+  } finally {
+    rmSync(empty, { recursive: true, force: true })
+  }
+})

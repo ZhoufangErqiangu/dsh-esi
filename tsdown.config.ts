@@ -22,19 +22,15 @@ import type { UserConfig } from 'tsdown'
 
 const ID = '@dsh-esi/plugin-esi'
 
-/** Externals resolved from the loader module table: the platform seed entries plus the runtime exemption. */
+/**
+ * Externals resolved from the loader module table: the platform seed entries.
+ * Every `@deepseek-ai/dsh-client-*` import in the cards is type-only and is
+ * erased, so only React (a seed module) must stay external.
+ */
 const CLIENT_EXTERNALS = [
   'react',
   'react/jsx-runtime',
-  'react-dom',
-  'react-dom/client',
   '@deepseek-ai/cordis',
-  '@deepseek-ai/dsh-client-ui-slots',
-  '@deepseek-ai/dsh-client-web-react',
-  '@deepseek-ai/dsh-client-ui-primitives',
-  '@deepseek-ai/dsh-client-ui-attachment',
-  '@deepseek-ai/dsh-client-schema-form',
-  '@deepseek-ai/dsh-client-runtime/client',
 ]
 
 const host: UserConfig = {

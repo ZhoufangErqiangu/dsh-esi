@@ -3,7 +3,7 @@
  */
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { JsonValue } from '@deepseek-ai/dsh-tools'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { SdeService } from '../sde/service.ts'
 
 export function createSdeStatusTool(sde: SdeService) {

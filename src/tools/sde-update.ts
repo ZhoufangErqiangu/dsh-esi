@@ -7,7 +7,7 @@
  */
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { JsonValue } from '@deepseek-ai/dsh-tools'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { EsiaAbortSignal } from '../esia-client.ts'
 import type { SdeUpdater } from '../sde/update.ts'
 import { SdeZipError, ZipSdeSource, validateSdeUrl } from '../sde/zip-source.ts'
@@ -15,12 +15,16 @@ import { SdeZipError, ZipSdeSource, validateSdeUrl } from '../sde/zip-source.ts'
 /** Executes one URL-driven update and resolves with the final status. */
 export type UrlUpdateRunner = (url: string, signal: EsiaAbortSignal | undefined) => Promise<unknown>
 
+/** Executes one rollback through the shared browser/runner path. */
+export type RollbackRunner = () => Promise<unknown>
+
 export function createSdeUpdateTool(updater: SdeUpdater | undefined, urlRunner?: UrlUpdateRunner) {
   return defineTool({
     name: 'sde_update',
     description:
       'Update the EVE static data (SDE). Two modes: (1) from the configured source (no url), or (2) from a download URL '
-      + 'pointing at a zip containing manifest.json plus one .jsonl per table (a jsonl mirror). ALWAYS call with '
+      + 'pointing at a zip in either supported layout: the official CCP static-data jsonl export '
+      + '(_sde.jsonl plus one .jsonl per table, no manifest needed) or a jsonl mirror that adds manifest.json. ALWAYS call with '
       + 'confirm=false first: this returns a dry-run plan without touching anything. Only after the user agrees, call '
       + 'again with confirm=true to download, build the new version directory, and atomically switch the active '
       + 'version. The previous version is kept and can be restored with sde_rollback. This is a user-triggered '
@@ -71,7 +75,7 @@ export function createSdeUpdateTool(updater: SdeUpdater | undefined, urlRunner?:
   })
 }
 
-export function createSdeRollbackTool(updater: SdeUpdater | undefined) {
+export function createSdeRollbackTool(updater: SdeUpdater | undefined, rollbackRunner?: RollbackRunner) {
   return defineTool({
     name: 'sde_rollback',
     description:
@@ -98,6 +102,9 @@ export function createSdeRollbackTool(updater: SdeUpdater | undefined) {
           note: 'call with confirm=true to roll back to the previous build',
         } as unknown as JsonValue)
       }
+      // Prefer the shared runner: the card polls that runner's status, and it
+      // owns the busy flag shared with URL updates.
+      if (rollbackRunner !== undefined) return rollbackRunner() as Promise<JsonValue>
       return Promise.resolve(updater.rollback() as unknown as JsonValue)
     },
   })

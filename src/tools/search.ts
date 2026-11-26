@@ -7,7 +7,7 @@
  */
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { JsonValue } from '@deepseek-ai/dsh-tools'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { ENDPOINTS } from '../generated/catalog.ts'
 import type { CatalogEndpoint } from '../catalog-types.ts'
 

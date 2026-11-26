@@ -1,73 +1,75 @@
 /**
- * dsh-esi browser half: contributes two settings cards into the Plugins
- * settings section (`settings.plugin.item` slot, keyed by namespace):
- * - `dsh-esi`        → the SDE-update card
- * - `dsh-esi-account` → the EVE account & market card
- * Each card binds the settings namespace the host half registers — the cards
- * never talk to the host directly, so no harness RPC surface is involved.
+ * dsh-esi browser half: the `EVE ESI` cards, contributed both to the bundle's
+ * page in the Plugins panel (`plugins.bundle.config`) and to the Plugins tab
+ * of the Settings dialog (`settings.plugins.tab`).
+ *
+ * DSH 0.2 owns plugin configuration pages itself: a bundle's own page renders
+ * `plugins.bundle.config` keyed by package name, and the page's config ledger
+ * only treats the bundle as configurable when that entry exists. The old
+ * ad-hoc settings namespaces are gone, so the cards poll the plugin's JSON
+ * bridge instead of writing a settings document.
+ *
+ * @module @dsh-esi/plugin-esi/client
  */
 
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
-// Type-only merges: the slot-map contract (slots), the locale registry
-// (ctx.locale), and the settings scope binder (ctx.settingsScope).
+import type { Context } from '@deepseek-ai/cordis'
+// Type-only merges: the slot-map contracts (Plugins page bundle config +
+// Settings Plugins tab), the renderer service (ctx.slots), and the locale
+// registry (ctx.locale).
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
-import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
-import { SdeUpdateCard, LOCALE_NS } from './SdeUpdateCard.tsx'
-import { SdeCardController, type SdeGuiSection } from './sde-card-controller.ts'
-import { EveAccountCard, ACCOUNT_LOCALE_NS } from './EveAccountCard.tsx'
-import { EveAccountCardController, type EveAccountSection } from './eve-account-card-controller.ts'
+import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
+import type {} from '@deepseek-ai/dsh-client-locale/client'
+import { EsiSettingsTab, type EsiTabFace } from './EsiSettingsTab.tsx'
+import { EsiUiClient } from './esi-ui-client.ts'
 import { en, enAccount, zh, zhAccount } from './locales.ts'
 
-// The `settings.plugin.item` slot type is owned by the shipped
-// ui-settings-plugins package; the browser half of dsh-esi cannot value-import
-// that package (client bundle purity gate), so the same additive declaration
-// is restated here. The slot is KEYED by the settings namespace the card
-// edits: the configurable tab dispatches each served namespace and renders
-// the card registered under that key.
-declare module '@deepseek-ai/dsh-client-ui-slots' {
-  interface SlotMap {
-    /** One plugin's card inside the plugin configuration section, keyed by the namespace it edits. */
-    'settings.plugin.item': { kind: 'keyed'; scope: 'root'; owner: { children?: never } }
-  }
-}
+/** Services the fiber injects. */
+export const inject = ['slots', 'locale']
 
-/** Services the fiber injects (mirrors the package.json dsh.client list). */
-export const inject = ['slots', 'locale', 'connection', 'remote', 'settingsScope']
+/** The bundle this package installs as; the key of `plugins.bundle.config`. */
+const BUNDLE_NAME = '@dsh-esi/plugin-esi'
 
-/** The settings namespaces the cards bind; spelled here to match the host half. */
-export const SDE_NS = 'dsh-esi'
-export const ACCOUNT_NS = 'dsh-esi-account'
+/** Dictionary namespace of the SDE-update card. */
+export const SDE_NS = 'dsh-esi.sde-card'
+/** Dictionary namespace of the EVE account & market card. */
+export const ACCOUNT_NS = 'dsh-esi.eve-account'
 
-/** Mount both cards into the Plugins settings section. */
-export function apply(ctx: ClientContext): void {
+/** Order of the Settings tab among the Plugins-page tabs. */
+const TAB_ORDER = 40
+
+/** Mount the cards on the plugin's own page and in the Settings Plugins tab. */
+export function apply(ctx: Context): void {
+  ctx.effect(() => ctx.locale.register(SDE_NS, { zh, en }), 'dsh-esi: sde card dictionary')
   ctx.effect(
-    () => ctx.locale.register(LOCALE_NS, { zh, en }) && ctx.locale.register(ACCOUNT_LOCALE_NS, { zh: zhAccount, en: enAccount }),
-    'dsh-esi: card dictionaries',
+    () => ctx.locale.register(ACCOUNT_NS, { zh: zhAccount, en: enAccount }),
+    'dsh-esi: account card dictionary',
   )
 
-  const sdeT = ctx.locale.bind(LOCALE_NS)
-  const sdeController = new SdeCardController(
-    ctx.settingsScope.bind<SdeGuiSection>({ namespace: SDE_NS }),
-    sdeT,
-  )
-
-  const accountT = ctx.locale.bind(ACCOUNT_LOCALE_NS)
-  const accountController = new EveAccountCardController(
-    ctx.settingsScope.bind<EveAccountSection>({ namespace: ACCOUNT_NS }),
-    accountT,
-  )
-
-  ctx.slots.inject('settings.plugin.item', function* () {
-    yield ctx.slots.register({
-      name: 'settings.plugin.item',
-      key: ACCOUNT_NS,
-      inject: () => accountController.inject(),
-    }, EveAccountCard)
-    yield ctx.slots.register({
-      name: 'settings.plugin.item',
-      key: SDE_NS,
-      inject: () => sdeController.inject(),
-    }, SdeUpdateCard)
+  const sdeT = ctx.locale.bind(SDE_NS)
+  const accountT = ctx.locale.bind(ACCOUNT_NS)
+  const face = (): EsiTabFace => ({
+    createClient: () => new EsiUiClient(),
+    tSde: sdeT,
+    tAccount: accountT,
   })
+
+  // Canonical home: the bundle's page in the Plugins panel. The config ledger
+  // keys this by package name and renders it as the page's configuration form.
+  ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
+    name: 'plugins.bundle.config',
+    key: BUNDLE_NAME,
+    inject: face,
+  }, EsiSettingsTab))
+
+  // Discoverability: the same cards as a tab in Settings → Plugins.
+  ctx.slots.inject('settings.plugins.tab', () => ctx.slots.register({
+    name: 'settings.plugins.tab',
+    id: 'dsh-esi',
+    order: TAB_ORDER,
+    // A thunk so the tab follows the active locale without re-registration.
+    label: () => sdeT('tabLabel'),
+    inject: face,
+  }, EsiSettingsTab))
 }

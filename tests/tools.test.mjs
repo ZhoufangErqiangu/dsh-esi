@@ -7,10 +7,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
-import { Context } from '@deepseek-ai/cordis'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime from '@deepseek-ai/dsh-tools'
-import { createScope } from '@deepseek-ai/dsh-scope'
+import { setupRuntime, createAgent, runTool } from './helpers/runtime.mjs'
 import { EsiaClient } from '../src/esia-client.ts'
 import { ENDPOINT_INDEX, ENDPOINTS, SERVERS } from '../src/generated/catalog.ts'
 import { createSearchTool } from '../src/tools/search.ts'
@@ -48,6 +45,7 @@ function makeClient(port) {
   })
 }
 
+/** Minimal exec context for direct `tool.execute` unit calls. */
 function execStub(overrides = {}) {
   return {
     callId: `c-${Math.random().toString(36).slice(2)}`,
@@ -58,21 +56,10 @@ function execStub(overrides = {}) {
   }
 }
 
-/** Full cordis runtime with an agent-scoped context (mirrors agent-loop setup). */
-async function setupRuntime() {
-  const root = new Context()
-  await root.plugin(SystemPrompt, {})
-  await root.plugin(ToolRuntime, { mode: 'native' })
-  const agent = { id: 'agent-1' }
-  let scope
-  // createScope must run inside a fiber that declares the services the agent
-  // scope chain must resolve (same idiom as the harness's mintAgentScope).
-  await root.plugin(Object.assign(
-    (inner) => { scope = createScope(inner, agent) },
-    { inject: ['tools', 'systemPrompt'] },
-  ))
-  agent.ctx = scope.ctx
-  return { root, agent }
+/** Root runtime plus one agent-scoped context for materialization tests. */
+async function setupAgentRuntime() {
+  const { root } = await setupRuntime()
+  return { root, agent: await createAgent(root) }
 }
 
 // ---- esi_endpoint_search ---------------------------------------------------
@@ -159,7 +146,7 @@ function registerFixed(root, client, options = {}) {
 }
 
 test('materialized tools are registered in the agent scope and invisible globally', async () => {
-  const { root, agent } = await setupRuntime()
+  const { root, agent } = await setupAgentRuntime()
   const { server, port } = await startMock((req, reply) => {
     reply.status(200).json({ character_id: 7, name: 'Scoped' })
   })
@@ -168,29 +155,18 @@ test('materialized tools are registered in the agent scope and invisible globall
     registerFixed(root, client, { cap: 5 })
 
     // Load one endpoint into the agent scope.
-    const loadResult = await root.tools.execute(execStub({
-      name: 'esi_endpoint_load',
-      agent,
-      arguments: { operation_ids: ['get_characters_character_id'] },
-    }))
+    const loadResult = await runTool(root, { name: 'esi_endpoint_load', agent, args: { operation_ids: ['get_characters_character_id'] } })
     assert.equal(loadResult.isError, false, JSON.stringify(loadResult.error))
     assert.equal(loadResult.value.loaded[0].name, 'esi_get_characters_character_id')
     assert.equal(loadResult.value.count, 1)
 
     // The materialized tool executes for this agent (scoped lookup succeeds).
-    const callResult = await root.tools.execute(execStub({
-      name: 'esi_get_characters_character_id',
-      agent,
-      arguments: { character_id: 7 },
-    }))
+    const callResult = await runTool(root, { name: 'esi_get_characters_character_id', agent, args: { character_id: 7 } })
     assert.equal(callResult.isError, false, JSON.stringify(callResult.error))
     assert.equal(callResult.value.data.name, 'Scoped')
 
     // The same tool is NOT reachable outside the agent scope.
-    const globalResult = await root.tools.execute(execStub({
-      name: 'esi_get_characters_character_id',
-      arguments: { character_id: 7 },
-    }))
+    const globalResult = await runTool(root, { name: 'esi_get_characters_character_id', args: { character_id: 7 } })
     assert.equal(globalResult.isError, true)
     assert.equal(globalResult.error.info.code, 'UNKNOWN_TOOL')
   } finally {
@@ -214,16 +190,12 @@ test('materialized tools survive via their own definition (unit level)', async (
 })
 
 test('loading a whole tag materializes every endpoint of that tag', async () => {
-  const { root, agent } = await setupRuntime()
+  const { root, agent } = await setupAgentRuntime()
   const { server, port } = await startMock((_req, reply) => reply.status(200).json([]))
   try {
     const client = makeClient(port)
     registerFixed(root, client, { cap: 100 })
-    const result = await root.tools.execute(execStub({
-      name: 'esi_endpoint_load',
-      agent,
-      arguments: { tag: 'Insurance' },
-    }))
+    const result = await runTool(root, { name: 'esi_endpoint_load', agent, args: { tag: 'Insurance' } })
     assert.equal(result.isError, false, JSON.stringify(result.error))
     // Insurance tag has exactly one endpoint in the CN spec.
     assert.equal(result.value.loaded.length, 1)
@@ -234,43 +206,27 @@ test('loading a whole tag materializes every endpoint of that tag', async () => 
 })
 
 test('cap enforcement and unload free slots', async () => {
-  const { root, agent } = await setupRuntime()
+  const { root, agent } = await setupAgentRuntime()
   const { server, port } = await startMock((_req, reply) => reply.status(200).json({}))
   try {
     const client = makeClient(port)
     registerFixed(root, client, { cap: 1 })
 
-    const first = await root.tools.execute(execStub({
-      name: 'esi_endpoint_load',
-      agent,
-      arguments: { operation_ids: ['get_alliances'] },
-    }))
+    const first = await runTool(root, { name: 'esi_endpoint_load', agent, args: { operation_ids: ['get_alliances'] } })
     assert.equal(first.value.count, 1)
 
     // Second load exceeds the cap.
-    const over = await root.tools.execute(execStub({
-      name: 'esi_endpoint_load',
-      agent,
-      arguments: { operation_ids: ['get_insurance_prices'] },
-    }))
+    const over = await runTool(root, { name: 'esi_endpoint_load', agent, args: { operation_ids: ['get_insurance_prices'] } })
     assert.equal(over.isError, true)
     assert.match(over.error.message, /cap reached/)
 
     // Unload frees the slot.
-    const unloaded = await root.tools.execute(execStub({
-      name: 'esi_endpoint_load',
-      agent,
-      arguments: { unload: ['get_alliances'] },
-    }))
+    const unloaded = await runTool(root, { name: 'esi_endpoint_load', agent, args: { unload: ['get_alliances'] } })
     assert.equal(unloaded.isError, false, JSON.stringify(unloaded.error))
     assert.equal(unloaded.value.count, 0)
 
     // The unloaded tool is no longer reachable for the agent.
-    const gone = await root.tools.execute(execStub({
-      name: 'esi_get_alliances',
-      agent,
-      arguments: {},
-    }))
+    const gone = await runTool(root, { name: 'esi_get_alliances', agent, args: {} })
     assert.equal(gone.isError, true)
     assert.equal(gone.error.info.code, 'UNKNOWN_TOOL')
   } finally {

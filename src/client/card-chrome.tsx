@@ -170,7 +170,7 @@ export const invalidText: CSSProperties = {
   margin: 0,
   fontSize: 12,
   lineHeight: 1.5,
-  color: 'var(--dsw-alias-label-error)',
+  color: 'var(--dsw-alias-state-error-primary)',
 }
 
 /** A labelled field block: label row, the control, and a hint/invalid line. */

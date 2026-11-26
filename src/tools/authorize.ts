@@ -3,7 +3,7 @@
  */
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { JsonValue } from '@deepseek-ai/dsh-tools'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { EsiaAuthService } from '../auth/service.ts'
 import { SCOPES } from '../generated/catalog.ts'
 

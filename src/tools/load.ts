@@ -12,7 +12,8 @@
  */
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { JsonValue, ParameterPropertySpec, ToolDefinition } from '@deepseek-ai/dsh-tools'
+import type { ParameterPropertySpec, ToolDefinition } from '@deepseek-ai/dsh-tools'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { ENDPOINT_INDEX, ENDPOINTS } from '../generated/catalog.ts'
 import type { CatalogEndpoint, CatalogParam } from '../catalog-types.ts'
 import type { EsiaClient } from '../esia-client.ts'
@@ -23,7 +24,6 @@ import {
   loadedCount,
   materializedToolName,
   recordLoaded,
-  type EsiaAgentLike,
 } from './load-state.ts'
 
 const DEFAULT_CAP = 30
@@ -124,7 +124,7 @@ export function createLoadTool(client: EsiaClient, options: LoadToolOptions = {}
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
     },
     async execute(args, exec): Promise<JsonValue> {
-      const agent = exec.agent as EsiaAgentLike | undefined
+      const agent = exec.agent
       if (agent === undefined) {
         throw new Error('esi_endpoint_load requires an agent-scoped session')
       }

@@ -1,8 +1,8 @@
 /**
- * GUI-driven SDE update runner: orchestrates the URL-download pipeline with
+ * Browser-driven SDE update runner: orchestrates the URL-download pipeline with
  * per-phase status callbacks. Cordis-free (a plain class) so the update flow
- * is unit-testable; the plugin wiring in index.ts bridges statuses to the
- * settings namespace the settings card reads.
+ * is unit-testable; `src/ui/bridge.ts` shares one runner between the browser
+ * cards and the `sde_update` tool.
  *
  * Flow: validate URL → probe (HEAD) → download (progress) → extract/validate
  * → build manifest + sqlite index in staging (old version stays live) →
@@ -14,6 +14,7 @@ import { readlinkSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { buildManifestForVersionDir } from '../../scripts/build-manifest.mjs'
 import type { SdeLanguage } from './types.ts'
+import type { SdeUiStatus } from '../ui/protocol.ts'
 import { SdeService } from './service.ts'
 import { swapCurrentSymlink } from './update.ts'
 import {
@@ -24,71 +25,55 @@ import {
   readManifestSafe,
 } from './zip-source.ts'
 
-export type SdeGuiPhase = 'idle' | 'checking' | 'downloading' | 'extracting' | 'building' | 'installing' | 'done' | 'error'
-
-export interface SdeGuiErrorInfo {
-  /** Stable code; the card maps it to a dictionary key and translates `params`. */
-  readonly code: string
-  /** Raw fallback text (zh) for hosts/logs/unknown codes. */
-  readonly message: string
-  /** Interpolation params for the code-keyed translation. */
-  readonly params?: Readonly<Record<string, string | number>>
-}
-
-export interface SdeGuiStatus {
-  readonly phase: SdeGuiPhase
-  /** Dictionary key of the status line; absent → the card renders `message` raw. */
-  readonly messageKey?: string
-  /** Interpolation params for `messageKey`. */
-  readonly messageParams?: Readonly<Record<string, string | number>>
-  /** Raw fallback text (zh) kept for logs / non-GUI consumers. */
-  readonly message: string
-  /** 0..1 download progress; present only while downloading. */
-  readonly progress?: number
-  readonly error?: SdeGuiErrorInfo
-  /** Active build after a successful update/rollback. */
-  readonly currentBuild?: number
-  /** Build that was active before the last update. */
-  readonly previousBuild?: number
-  readonly at: number
-}
+export type { SdeUiError, SdeUiPhase, SdeUiStatus } from '../ui/protocol.ts'
 
 /** A status before the timestamp is stamped (emit fills `at`). */
-type SdeGuiStatusDraft = Omit<SdeGuiStatus, 'at'> & { readonly at?: number }
+type SdeUiStatusDraft = Omit<SdeUiStatus, 'at'> & { readonly at?: number }
 
-export interface SdeGuiRunnerOptions {
+export interface SdeUpdateRunnerOptions {
   readonly dataRoot: string
   readonly defaultLanguage?: SdeLanguage
 }
 
 const PROGRESS_THROTTLE_MS = 150
 const PROGRESS_STEP = 0.01
+/** Ignore a repeated rollback right after one finished (double click / retry storm). */
+const ROLLBACK_COOLDOWN_MS = 1500
 
-export class SdeGuiRunner {
+export class SdeUpdateRunner {
   private readonly sde: SdeService
   private readonly dataRoot: string
   private running = false
-  private lastStatus: SdeGuiStatus
+  private lastStatus: SdeUiStatus
   private lastProgressAt = 0
   private lastProgressPercent: number | undefined
+  private lastRollbackAt = 0
 
-  constructor(options: SdeGuiRunnerOptions) {
+  constructor(options: SdeUpdateRunnerOptions) {
     this.dataRoot = options.dataRoot
     this.sde = new SdeService({ dataRoot: options.dataRoot, defaultLanguage: options.defaultLanguage })
     this.lastStatus = this.idleStatus()
   }
 
-  /** Whether an update or rollback is in flight (the settings watcher gates on this). */
+  /** Whether an update or rollback is in flight (shared by the card and the url tool). */
   get busy(): boolean {
     return this.running
   }
 
   /** Latest published status (initial value: idle with the current build). */
-  status(): SdeGuiStatus {
+  status(): SdeUiStatus {
     return this.lastStatus
   }
 
-  private idleStatus(): SdeGuiStatus {
+  /** Installed SDE builds, newest first (empty when `data/` has no versions). */
+  listVersions(): number[] {
+    return listVersionDirs(this.dataRoot)
+      .map((name) => readManifestSafe(join(this.dataRoot, name))?.buildNumber ?? -1)
+      .filter((build) => build >= 0)
+      .sort((a, b) => b - a)
+  }
+
+  private idleStatus(): SdeUiStatus {
     const build = this.currentBuild()
     return {
       phase: 'idle',
@@ -101,7 +86,7 @@ export class SdeGuiRunner {
   }
 
   /** Run one URL-driven update; statuses are delivered through `onStatus`. */
-  async runUpdate(rawUrl: string, onStatus: (status: SdeGuiStatus) => void, signal?: AbortSignal): Promise<void> {
+  async runUpdate(rawUrl: string, onStatus: (status: SdeUiStatus) => void, signal?: AbortSignal): Promise<void> {
     if (this.running) {
       this.emit(onStatus, this.failed('BUSY', '已有更新任务在运行，请等待完成'))
       return
@@ -170,11 +155,15 @@ export class SdeGuiRunner {
   }
 
   /** Roll back to the newest other version on disk. */
-  async rollback(onStatus: (status: SdeGuiStatus) => void): Promise<void> {
+  async rollback(onStatus: (status: SdeUiStatus) => void): Promise<void> {
     if (this.running) {
       this.emit(onStatus, this.failed('BUSY', '已有更新任务在运行，请等待完成'))
       return
     }
+    // A rollback is a synchronous symlink flip, so the running flag is already
+    // clear when a double click's second request arrives. Keep the just-shown
+    // result instead of flipping to the next build.
+    if (Date.now() - this.lastRollbackAt < ROLLBACK_COOLDOWN_MS) return
     this.running = true
     try {
       const current = this.currentDirName()
@@ -194,6 +183,7 @@ export class SdeGuiRunner {
         message: `正在回滚到 build ${candidate.build}…`,
       })
       swapCurrentSymlink(this.dataRoot, candidate.name)
+      this.lastRollbackAt = Date.now()
       const build = readManifestSafe(join(this.dataRoot, candidate.name))?.buildNumber
       this.emit(onStatus, {
         phase: 'done',
@@ -228,7 +218,7 @@ export class SdeGuiRunner {
   }
 
   private reportProgress(
-    onStatus: (status: SdeGuiStatus) => void,
+    onStatus: (status: SdeUiStatus) => void,
     bytes: number,
     total: number | undefined,
     percent: number | undefined,
@@ -251,7 +241,7 @@ export class SdeGuiRunner {
     })
   }
 
-  private fail(onStatus: (status: SdeGuiStatus) => void, error: unknown): void {
+  private fail(onStatus: (status: SdeUiStatus) => void, error: unknown): void {
     if (error instanceof SdeZipError) {
       this.emit(onStatus, this.failed(error.code, error.message, error.params))
       return
@@ -260,7 +250,7 @@ export class SdeGuiRunner {
     this.emit(onStatus, this.failed('INTERNAL', `更新失败：${truncate(message, 200)}`, { detail: truncate(message, 200) }))
   }
 
-  private failed(code: string, message: string, params?: Record<string, string | number>): SdeGuiStatus {
+  private failed(code: string, message: string, params?: Record<string, string | number>): SdeUiStatus {
     return {
       phase: 'error',
       message,
@@ -270,8 +260,8 @@ export class SdeGuiRunner {
     }
   }
 
-  private emit(onStatus: (status: SdeGuiStatus) => void, status: SdeGuiStatusDraft): void {
-    const stamped: SdeGuiStatus = { ...status, at: status.at ?? Date.now() }
+  private emit(onStatus: (status: SdeUiStatus) => void, status: SdeUiStatusDraft): void {
+    const stamped: SdeUiStatus = { ...status, at: status.at ?? Date.now() }
     this.lastStatus = stamped
     onStatus(stamped)
   }

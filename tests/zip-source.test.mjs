@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { strToU8, zipSync } from 'fflate'
 import { SdeService } from '../src/sde/service.ts'
-import { SdeGuiRunner } from '../src/sde/gui-runner.ts'
+import { SdeUpdateRunner } from '../src/sde/runner.ts'
 import { buildManifestForVersionDir } from '../scripts/build-manifest.mjs'
 import { installVersionDir, validateSdeUrl } from '../src/sde/zip-source.ts'
 import { ZipSdeSource, SdeZipError } from '../src/sde/zip-source.ts'
@@ -274,7 +274,7 @@ test('GuiRunner: full update + query + rollback', async () => {
   const { server, port } = await startServer(serveZip(zip))
   const dataRoot = makeDataRoot()
   try {
-    const runner = new SdeGuiRunner({ dataRoot })
+    const runner = new SdeUpdateRunner({ dataRoot })
     const statuses = []
     await runner.runUpdate(url(port), (s) => statuses.push(s))
 
@@ -330,7 +330,7 @@ test('GuiRunner: update then rollback to the previous version', async () => {
   })
   const dataRoot = makeDataRoot()
   try {
-    const runner = new SdeGuiRunner({ dataRoot })
+    const runner = new SdeUpdateRunner({ dataRoot })
     await runner.runUpdate(url(port, '/v1.zip'), () => {})
     await runner.runUpdate(url(port, '/v2.zip'), () => {})
     assert.equal(new SdeService({ dataRoot }).status().buildNumber, 20260102)
@@ -350,7 +350,7 @@ test('GuiRunner: same-content re-download reuses the version dir', async () => {
   const { server, port } = await startServer(serveZip(zip))
   const dataRoot = makeDataRoot()
   try {
-    const runner = new SdeGuiRunner({ dataRoot })
+    const runner = new SdeUpdateRunner({ dataRoot })
     await runner.runUpdate(url(port), () => {})
     const versionDir = join(dataRoot, 'sde-20260101')
     const manifestBefore = readFileSync(join(versionDir, 'manifest.json'), 'utf8')
@@ -367,7 +367,7 @@ test('GuiRunner: same-content re-download reuses the version dir', async () => {
 
 test('GuiRunner: bad URL and bad payload surface typed error statuses', async () => {
   const dataRoot = makeDataRoot()
-  const runner = new SdeGuiRunner({ dataRoot })
+  const runner = new SdeUpdateRunner({ dataRoot })
   try {
     const badUrl = []
     await runner.runUpdate('not a url at all', (s) => badUrl.push(s))
@@ -443,3 +443,51 @@ test('swapCurrentSymlink flips the current symlink atomically', () => {
 function readdirCount(dir) {
   return readdirSync(dir).length
 }
+
+/** The official CCP jsonl export: no manifest.json, just `_sde.jsonl` + tables. */
+function makeOfficialZip(buildNumber, tables) {
+  return zipSync({
+    '_sde.jsonl': strToU8(JSON.stringify({ _key: 'sde', buildNumber, releaseDate: '2026-11-26T11:07:02Z' }) + '\n'),
+    ...Object.fromEntries(
+      Object.entries(tables).map(([table, rows]) => [
+        `${table}.jsonl`,
+        strToU8(rows.map((row) => JSON.stringify(row)).join('\n') + '\n'),
+      ]),
+    ),
+  })
+}
+
+test('official CCP jsonl layout (no manifest.json) installs and queries', async () => {
+  const zip = makeOfficialZip(3749835, {
+    types: TYPES_V1,
+    mapRegions: [{ _key: 10000002, name: { en: 'The Forge' } }],
+  })
+  const { server, port } = await startServer(serveZip(zip))
+  const dataRoot = makeDataRoot()
+  try {
+    const runner = new SdeUpdateRunner({ dataRoot })
+    const statuses = []
+    await runner.runUpdate(url(port), (status) => { statuses.push(status) })
+    const last = statuses.at(-1)
+    assert.equal(last.phase, 'done')
+    assert.equal(last.currentBuild, 3749835)
+    const sde = new SdeService({ dataRoot })
+    assert.equal(sde.status().buildNumber, 3749835)
+    const result = await sde.query({ table: 'types', ids: [34] })
+    assert.equal(result.rows[0].name, 'Tritanium')
+  } finally {
+    server.close()
+    rmSync(dataRoot, { recursive: true, force: true })
+  }
+})
+
+test('probe reads the official build id from the filename', async () => {
+  const { server, port } = await startServer(serveZip(makeOfficialZip(3749835, { types: TYPES_V1 })))
+  try {
+    const source = new ZipSdeSource(url(port, '/eve-online-static-data-3749835-jsonl.zip'))
+    const probe = await source.probe()
+    assert.equal(probe.buildNumber, 3749835)
+  } finally {
+    server.close()
+  }
+})

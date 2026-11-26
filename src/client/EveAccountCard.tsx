@@ -6,21 +6,25 @@
  */
 
 import type { CSSProperties } from 'react'
-import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import {
-  CardFrame, field, fieldHead, fieldLabel, fieldSeparated, hint, invalidText,
+  CardFrame, buttonDisabled, field, fieldHead, fieldLabel, fieldSeparated, hint, invalidText,
   inputBase, primaryButton, secondaryButton,
 } from './card-chrome.tsx'
-import type { EveAccountCardFace } from './eve-account-card-controller.ts'
+import type { EveAccountCardState } from './esi-ui-client.ts'
 import type { EveAccountLocaleKey } from './locales.ts'
 
 /** Dictionary namespace owned by this card. */
 export const ACCOUNT_LOCALE_NS = 'dsh-esi.eve-account'
 
-/** Props the renderer binds for the card. */
-export type EveAccountCardProps =
-  PropsRuntime<'settings.plugin.item'>
-  & InjectFace<EveAccountCardFace>
+/** Props the settings tab passes to the card. */
+export interface EveAccountCardProps {
+  /** Card copy, bound to the card's dictionary namespace. */
+  readonly t: (key: EveAccountLocaleKey, params?: Record<string, unknown>) => string
+  readonly state: EveAccountCardState
+  readonly onLogin: () => void
+  readonly onDeauth: (characterId?: number) => void
+  readonly onSetRegion: (regionId?: number) => void
+}
 
 const charList: CSSProperties = {
   listStyle: 'none',
@@ -100,13 +104,9 @@ const selectStyle: CSSProperties = {
  * @param props - locale copy, the card snapshot, and its trigger actions.
  * @returns the card.
  */
-export function EveAccountCard(props: EveAccountCardProps) {
-  const { t } = props
-  const state = props.useEveAccountCard((snapshot) => snapshot)
-
+export function EveAccountCard({ t, state, onLogin, onDeauth, onSetRegion }: EveAccountCardProps) {
   if (!state.available) return null
 
-  const locked = !state.writable
   const busy = state.busy
   const status = state.status
 
@@ -138,8 +138,8 @@ export function EveAccountCard(props: EveAccountCardProps) {
                   <button
                     type="button"
                     style={miniButton}
-                    disabled={locked}
-                    onClick={() => { props.deauth(character.characterId) }}
+                    disabled={busy}
+                    onClick={() => { onDeauth(character.characterId) }}
                   >
                     {t('deauth')}
                   </button>
@@ -152,8 +152,8 @@ export function EveAccountCard(props: EveAccountCardProps) {
             <button
               type="button"
               style={miniButton}
-              disabled={locked}
-              onClick={() => { props.deauth() }}
+              disabled={busy}
+              onClick={() => { onDeauth() }}
             >
               {t('deauthAll')}
             </button>
@@ -161,18 +161,17 @@ export function EveAccountCard(props: EveAccountCardProps) {
         )}
       </div>
 
-      {/* EVE login — disabled for now (coming soon). */}
+      {/* EVE SSO login: the Host publishes the login URL, the user opens it. */}
       <div style={fieldSeparated}>
         <div style={actionRow}>
           <button
             type="button"
-            style={{ ...primaryButton, opacity: 0.4, cursor: 'default' }}
-            disabled
-            aria-disabled="true"
+            style={(busy) ? { ...primaryButton, ...buttonDisabled } : primaryButton}
+            disabled={busy}
+            onClick={onLogin}
           >
-            {t('login')}
+            {busy ? t('loginBusy') : t('login')}
           </button>
-          <span style={hint}>{t('comingSoon')}</span>
           {status?.loginUrl !== undefined && (
             <a href={status.loginUrl} target="_blank" rel="noreferrer" style={loginLink}>
               {t('openLoginUrl')}
@@ -200,10 +199,15 @@ export function EveAccountCard(props: EveAccountCardProps) {
           id="dsh-esi-market-region"
           style={selectStyle}
           value={state.regionId ?? ''}
-          disabled={locked}
+          disabled={busy}
           onChange={(event) => {
-            const next = Number(event.target.value)
-            if (Number.isInteger(next) && next > 0) props.setRegion(next)
+            const raw = event.target.value
+            if (raw === '') {
+              onSetRegion(undefined)
+              return
+            }
+            const next = Number(raw)
+            if (Number.isInteger(next) && next > 0) onSetRegion(next)
           }}
         >
           <option value="">{t('noRegion')}</option>

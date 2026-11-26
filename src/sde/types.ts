@@ -36,6 +36,10 @@ export interface SdeStatus {
   /** True when the derived SQLite store (sde.db) is present for this version. */
   readonly dbPresent: boolean
   readonly manifestPresent: boolean
+  /** False when no SDE data root or version directory exists yet. */
+  readonly installed?: boolean
+  /** Actionable diagnostic when `installed` is false. */
+  readonly message?: string
 }
 
 /** Localized-language codes used by the jsonl format. */

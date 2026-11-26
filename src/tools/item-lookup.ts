@@ -11,7 +11,7 @@
  */
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { JsonValue } from '@deepseek-ai/dsh-tools'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { SdeService } from '../sde/service.ts'
 import { SDE_LANGUAGES, type SdeLanguage } from '../sde/types.ts'
 

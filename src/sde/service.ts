@@ -34,6 +34,23 @@ const VERSION_FILE = '_sde.jsonl'
 const DEFAULT_LIMIT = 20
 const MAX_LIMIT = 200
 
+/** Stable code for every "no SDE data installed yet" failure. */
+export const SDE_NOT_INSTALLED = 'SDE_NOT_INSTALLED'
+
+/** No data root / no version directory yet: a setup state, not a crash. */
+export class SdeDataMissingError extends Error {
+  readonly code = SDE_NOT_INSTALLED
+
+  constructor(dataRoot: string, detail?: string) {
+    super(
+      `SDE 数据未安装：${dataRoot} 不存在可用的版本目录`
+      + `${detail === undefined ? '' : `（${detail}）`}。`
+      + '请用 sde_update 传入 jsonl 镜像 zip 的 url，或把版本目录放到 data/ 后运行 node scripts/build-manifest.mjs。',
+    )
+    this.name = 'SdeDataMissingError'
+  }
+}
+
 export interface SdeServiceOptions {
   dataRoot: string
   defaultLanguage?: SdeLanguage
@@ -60,6 +77,7 @@ export class SdeService {
 
   /** The current version directory: the `current` symlink, else the only `_sde.jsonl` dir. */
   resolveVersionDir(): string {
+    if (!existsSync(this.dataRoot)) throw new SdeDataMissingError(this.dataRoot, '数据根目录不存在')
     const currentLink = join(this.dataRoot, 'current')
     if (existsSync(currentLink)) {
       const resolved = readlinkSync(currentLink)
@@ -71,7 +89,7 @@ export class SdeService {
       .filter((dir) => existsSync(join(dir, VERSION_FILE)))
     if (candidates.length === 1) return candidates[0]!
     if (candidates.length === 0) {
-      throw new Error(`no SDE version directory found under ${this.dataRoot} (looking for directories containing ${VERSION_FILE})`)
+      throw new SdeDataMissingError(this.dataRoot, `没有包含 ${VERSION_FILE} 的版本目录`)
     }
     throw new Error(
       `multiple SDE version directories found under ${this.dataRoot} and no "current" symlink: `
@@ -99,7 +117,14 @@ export class SdeService {
   }
 
   status(): SdeStatus {
-    const versionDir = this.resolveVersionDir()
+    if (!existsSync(this.dataRoot)) return this.missingStatus()
+    let versionDir: string
+    try {
+      versionDir = this.resolveVersionDir()
+    } catch (error) {
+      if (error instanceof SdeDataMissingError) return this.missingStatus()
+      throw error
+    }
     const version = this.readVersion(versionDir)
     const manifest = this.readManifest(versionDir)
     if (manifest === undefined) {
@@ -126,6 +151,23 @@ export class SdeService {
       totalBytes: tables.reduce((sum, [, stats]) => sum + stats.sizeBytes, 0),
       dbPresent: existsSync(join(versionDir, SDE_DB_FILE)),
       manifestPresent: true,
+    }
+  }
+
+  /** The status reported before any SDE data exists (never throws). */
+  private missingStatus(): SdeStatus {
+    return {
+      dataRoot: this.dataRoot,
+      versionDir: '',
+      buildNumber: 0,
+      releaseDate: '',
+      tableCount: 0,
+      totalRows: 0,
+      totalBytes: 0,
+      dbPresent: false,
+      manifestPresent: false,
+      installed: false,
+      message: 'SDE 数据未安装：用 sde_update 传入镜像 url，或放置版本目录后运行 scripts/build-manifest.mjs',
     }
   }
 
