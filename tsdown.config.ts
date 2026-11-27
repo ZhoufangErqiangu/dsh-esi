@@ -46,8 +46,8 @@ const host: UserConfig = {
   deps: {
     // The host harness provides the peer packages — never bundle them.
     neverBundle: ['@deepseek-ai/cordis', '@deepseek-ai/dsh-tools'],
-    // fflate (zip extraction for sde_update) is a runtime dependency: inline it
-    // so the bundle is self-contained and consumers need nothing extra.
+    // fflate (zip extraction for sde_update) is a build-time dev dependency:
+    // inline it so the bundle is self-contained and consumers install nothing.
     alwaysBundle: ['fflate'],
   },
 }
