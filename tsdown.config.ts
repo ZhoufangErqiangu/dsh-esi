@@ -15,7 +15,7 @@
  *
  * Plain object export (no tsdown import) so the config loads even when the
  * package's own node_modules does not yet contain tsdown (e.g. the first
- * `pnpm install` that triggers `prepare`).
+ * `npm install` that triggers `prepare`).
  */
 
 import type { UserConfig } from 'tsdown'

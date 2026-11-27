@@ -7,7 +7,7 @@
  * difference is that the row names `lib/index.js` instead of the package, so
  * the run needs no profile mutation and no network.
  *
- * Usage (after `pnpm run build`):
+ * Usage (after `npm run build`):
  *   node scripts/acceptance.mjs
  *   DSH_BIN=/path/to/dsh node scripts/acceptance.mjs
  */
@@ -29,7 +29,7 @@ function fail(message) {
   process.exit(1)
 }
 
-if (!existsSync(artifact)) fail(`missing ${artifact}; run "pnpm run build" first`)
+if (!existsSync(artifact)) fail(`missing ${artifact}; run "npm run build" first`)
 
 const home = mkdtempSync(join(tmpdir(), 'dsh-esi-acceptance-',))
 const child = spawn(dshBin, [

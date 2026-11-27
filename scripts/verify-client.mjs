@@ -8,7 +8,7 @@
  * a runtime `require` the module table cannot answer. It does not verify CSS,
  * layout, or the real page; see README "Debugging".
  *
- * Usage: node scripts/verify-client.mjs   (after `pnpm run build`)
+ * Usage: node scripts/verify-client.mjs   (after `npm run build`)
  */
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'

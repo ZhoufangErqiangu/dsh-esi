@@ -12,29 +12,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11.20.0
-
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: pnpm
+          cache: npm
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: npm ci
 
       - name: Catalog drift check (swagger → generated catalog)
-        run: pnpm run gen:check
+        run: npm run gen:check
 
       - name: Typecheck (host + browser halves)
-        run: pnpm exec tsc -p tsconfig.json
+        run: npm run typecheck
 
       - name: Unit tests (99 cases, mock servers + real Web server, no network)
-        run: pnpm test
+        run: npm test
 
       - name: Build bundle (tsdown → lib/)
-        run: pnpm run build
+        run: npm run build
 
       - name: Browser bundle structure (loader id, slot, render)
         run: node scripts/verify-client.mjs

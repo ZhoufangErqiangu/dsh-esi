@@ -75,12 +75,12 @@ How it works in DSH 0.2.2:
 ## Development
 
 ```bash
-pnpm install                      # npm-published DSH 0.2.2 packages; no harness checkout needed
-pnpm run gen                      # regenerate the endpoint catalog from public/json/esi.json
+npm install                       # npm-published DSH 0.2.2 packages; no harness checkout needed
+npm run gen                       # regenerate the endpoint catalog from public/json/esi.json
 node scripts/build-manifest.mjs   # build the SDE manifest + index
-pnpm test                         # tests (99 cases, mock servers, real Web server, no network)
-pnpm run typecheck                # tsc over host + browser halves
-pnpm run build                    # tsdown → lib/index.js + lib/client.js
+npm test                          # tests (99 cases, mock servers, real Web server, no network)
+npm run typecheck                 # tsc over host + browser halves
+npm run build                     # tsdown → lib/index.js + lib/client.js
 node scripts/verify-client.mjs    # built browser bundle: loader id, slot, render
 node scripts/smoke.mjs            # offline full-pipeline smoke (mocked; needs data/ in place)
 node scripts/e2e-real.mjs         # real-network e2e (CN public endpoints; needs external network)
@@ -90,8 +90,8 @@ node scripts/acceptance.mjs       # live `dsh web` mount + bridge check (needs `
 ## Build & release
 
 ```bash
-pnpm run build      # tsdown build to lib/ (host ESM: peers external, fflate inlined, node: builtins external; browser CJS closure)
-pnpm pack           # local tarball inspection (files whitelist: lib/ + cordis.patch.yml + README + LICENSE + package.json)
+npm run build       # tsdown build to lib/ (host ESM: peers external, fflate inlined, node: builtins external; browser CJS closure)
+npm pack            # local tarball inspection (files whitelist: lib/ + cordis.patch.yml + README + LICENSE + package.json)
 ```
 
 - The root `package.json` declares `dsh.bundle.patch: ./cordis.patch.yml`: the package is a standard **bundle**, so `dsh plugin add` inserts the plugin row into the profile layer by package name; the browser half is auto-discovered from the same manifest's `dsh.client` declaration (no separate row needed).
@@ -106,7 +106,7 @@ pnpm pack           # local tarball inspection (files whitelist: lib/ + cordis.p
 The overlay in `scripts/web-patch.yml` mounts the built host half by absolute path, so the real loader runs it without touching the harness workspace:
 
 ```bash
-pnpm run build
+npm run build
 DSH_HOME=$PWD/.tmp/run-home dsh web --patch "$PWD/scripts/web-patch.yml" --no-open --port 3081
 node scripts/acceptance.mjs      # boots the same composition on a random port and checks the bridge
 ```

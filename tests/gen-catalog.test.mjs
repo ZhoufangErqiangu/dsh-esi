@@ -160,9 +160,9 @@ test('rendering is deterministic', () => {
   assert.equal(a, b)
 })
 
-test('committed generated catalog is current (run `pnpm run gen` on drift)', () => {
+test('committed generated catalog is current (run `npm run gen` on drift)', () => {
   const rendered = renderCatalog(SPEC)
-  assert.equal(OUT, rendered, 'src/generated/catalog.ts is out of date — run `pnpm run gen`')
+  assert.equal(OUT, rendered, 'src/generated/catalog.ts is out of date — run `npm run gen`')
 })
 
 test('committed catalog contains the full endpoint set with index consistency', () => {

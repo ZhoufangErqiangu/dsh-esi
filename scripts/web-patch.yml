@@ -1,6 +1,6 @@
 # dsh-esi — `dsh web` overlay for development and acceptance runs.
 #
-# Usage (from this repository, after `pnpm run build`):
+# Usage (from this repository, after `npm run build`):
 #   DSH_HOME=$PWD/.tmp/acceptance-home \
 #     dsh web --patch "$PWD/scripts/web-patch.yml" --no-open --port 3081
 #

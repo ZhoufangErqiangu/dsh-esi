@@ -75,12 +75,12 @@
 ## 开发
 
 ```bash
-pnpm install                      # 全部依赖来自 npm 上的 DSH 0.2.2，无需 harness checkout
-pnpm run gen                      # 从 public/json/esi.json 重新生成端点目录
+npm install                       # 全部依赖来自 npm 上的 DSH 0.2.2，无需 harness checkout
+npm run gen                       # 从 public/json/esi.json 重新生成端点目录
 node scripts/build-manifest.mjs   # 构建 SDE manifest + 索引
-pnpm test                         # 测试（99 用例，mock 服务器 + 真实 Web server，无需网络）
-pnpm run typecheck                # 同时检查 host 与浏览器半面
-pnpm run build                    # tsdown → lib/index.js + lib/client.js
+npm test                          # 测试（99 用例，mock 服务器 + 真实 Web server，无需网络）
+npm run typecheck                 # 同时检查 host 与浏览器半面
+npm run build                     # tsdown → lib/index.js + lib/client.js
 node scripts/verify-client.mjs    # 浏览器包结构检查（loader id / 槽位 / 组件渲染）
 node scripts/smoke.mjs            # 离线全链路冒烟（mock，需 data/ 就位）
 node scripts/e2e-real.mjs         # 真实网络 e2e（国服公开端点，需外网）
@@ -90,8 +90,8 @@ node scripts/acceptance.mjs       # 真实 `dsh web` 挂载 + 桥接口检查（
 ## 构建与发布
 
 ```bash
-pnpm run build      # tsdown 构建 lib/（host 单文件 ESM：peers 外挂、fflate 内联、node: 内置外置；浏览器半面为 CJS 闭包）
-pnpm pack           # 本地打包检查 tarball 内容（files 白名单：lib/ + cordis.patch.yml + README + LICENSE + package.json）
+npm run build       # tsdown 构建 lib/（host 单文件 ESM：peers 外挂、fflate 内联、node: 内置外置；浏览器半面为 CJS 闭包）
+npm pack            # 本地打包检查 tarball 内容（files 白名单：lib/ + cordis.patch.yml + README + LICENSE + package.json）
 ```
 
 - 根 `package.json` 声明 `dsh.bundle.patch: ./cordis.patch.yml`：包是标准**组合包（bundle）**，`dsh plugin add` 会把插件行按包名插入 profile 层；浏览器半面由同一 manifest 的 `dsh.client` 声明自动发现（无需单独的行）。
@@ -106,7 +106,7 @@ pnpm pack           # 本地打包检查 tarball 内容（files 白名单：lib/
 `scripts/web-patch.yml` 通过绝对路径挂载构建产物，真实 loader 直接运行，无需改动 harness 工作区：
 
 ```bash
-pnpm run build
+npm run build
 DSH_HOME=$PWD/.tmp/run-home dsh web --patch "$PWD/scripts/web-patch.yml" --no-open --port 3081
 node scripts/acceptance.mjs      # 在随机端口启动同一组合并检查桥接口
 ```
