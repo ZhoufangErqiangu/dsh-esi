@@ -1,6 +1,6 @@
 {
   "name": "@dsh-esi/plugin-esi",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "DSH plugin bridging EVE Online ESI API and SDE static data with a small always-visible tool surface plus on-demand endpoint materialization.",
   "type": "module",
   "license": "MIT",
